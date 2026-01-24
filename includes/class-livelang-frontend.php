@@ -26,6 +26,13 @@ class LiveLang_Frontend {
         add_action( 'init', array( $this, 'add_permastruct' ) );
         add_action( 'template_redirect', array( $this, 'start_buffer' ), 1 );
 
+        // Filters to persist language in URLs
+        add_filter( 'home_url', array( $this, 'filter_url' ), 10, 1 );
+        add_filter( 'page_link', array( $this, 'filter_url' ), 10, 1 );
+        add_filter( 'post_link', array( $this, 'filter_url' ), 10, 1 );
+        add_filter( 'post_type_link', array( $this, 'filter_url' ), 10, 1 );
+        add_filter( 'term_link', array( $this, 'filter_url' ), 10, 1 );
+        add_filter( 'wp_nav_menu_objects', array( $this, 'filter_menu_urls' ), 10, 1 );
     }
 
     function add_rewrite_tag() {
@@ -445,7 +452,7 @@ class LiveLang_Frontend {
                 'slug'    => $slug,
                 'currentLanguage' => $this->getCurrentLanguage(),
                 'homepageSlug' => $this->get_homepage_slug(),
-                'homeUrl' => home_url(),
+                'homeUrl' => get_option( 'home' ),
                 'languages' => $languages,
                 'dict'    => $dict, 
                 'i18n'    => array(
@@ -593,4 +600,83 @@ class LiveLang_Frontend {
         return ob_get_clean();
     }
 
+    /**
+     * Filter menu item URLs to include language prefix
+     */
+    public function filter_menu_urls( $items ) {
+        foreach ( $items as $item ) {
+            if ( ! empty( $item->url ) ) {
+                $item->url = $this->filter_url( $item->url );
+            }
+        }
+        return $items;
+    }
+
+    /**
+     * Filter URLs to include current language prefix
+     */
+    public function filter_url( $url ) {
+        if ( is_admin() || ! $url ) {
+            return $url;
+        }
+
+        $lang = $this->getCurrentLanguage();
+
+        // Skip if default language or matching error/empty
+        if ( ! $lang || $lang === 'en' || $lang === $this->get_default_language() ) {
+            return $url;
+        }
+
+        // Basic check to exclude assets
+        if ( preg_match( '/\.(css|js|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot|xml)$/i', $url ) ) {
+            return $url;
+        }
+
+        // Parse URL
+        $parsed = parse_url( $url );
+        
+        // Get raw home URL to check host match (avoid infinite loop by NOT calling home_url())
+        $raw_home = get_option( 'home' );
+        $home_parsed = parse_url( $raw_home );
+        $home_host = isset($home_parsed['host']) ? $home_parsed['host'] : '';
+
+        // Ensure it's our host
+        if ( isset($parsed['host']) && $parsed['host'] !== $home_host ) {
+            return $url;
+        }
+
+        // Get path
+        $path = isset($parsed['path']) ? $parsed['path'] : '/';
+        
+        // Exclude system paths
+        if ( preg_match( '#^/(wp-admin|wp-content|wp-json|wp-includes)#', $path ) ) {
+            return $url;
+        }
+
+        // Check availability of prefix
+        if ( preg_match( '#^/' . $lang . '(/|$)#', $path ) ) {
+            return $url;
+        }
+
+        // Inject prefix
+        if ( $path === '/' ) {
+            $path = '/' . $lang . '/';
+        } else {
+             // ensure path starts with /
+             if ( substr( $path, 0, 1 ) !== '/' ) {
+                 $path = '/' . $path;
+             }
+             $path = '/' . $lang . $path;
+        }
+
+        // Rebuild URL
+        // Use component if available, else fallback to home settings or default
+        $scheme = isset($parsed['scheme']) ? $parsed['scheme'] . '://' : (isset($home_parsed['scheme']) ? $home_parsed['scheme'] . '://' : '//');
+        $host   = isset($parsed['host']) ? $parsed['host'] : $home_host;
+        $port   = isset($parsed['port']) ? ':' . $parsed['port'] : '';
+        $query  = isset($parsed['query']) ? '?' . $parsed['query'] : '';
+        $frag   = isset($parsed['fragment']) ? '#' . $parsed['fragment'] : '';
+        
+        return $scheme . $host . $port . $path . $query . $frag;
+    }
 }
