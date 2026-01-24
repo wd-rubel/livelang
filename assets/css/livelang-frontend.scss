@@ -1,0 +1,334 @@
+$livelang-primary: #5a8aff;
+$livelang-primary-dark: #3757d6;
+$livelang-primary-active: #547cf8;
+$livelang-dark: #333333;
+$livelang-active-bg: linear-gradient(135deg, #27ae60, #007b34);
+$livelang-radius-pill: 999px;
+$livelang-shadow-soft: 0 10px 32px rgba(0, 0, 0, 0.18);
+$transition-smooth: cubic-bezier(0.16, 1, 0.3, 1);
+
+/* Bottom translate bar */
+.livelang-bar {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99998;
+  display: flex;
+  align-items: center;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+  transition:
+    gap 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.35s ease,
+    background 0.35s ease;
+  will-change: gap, box-shadow, background;
+}
+
+/* Actions hidden by default */
+.livelang-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  max-width: 0;
+  opacity: 0;
+  transform: translateX(12px) scale(0.9);
+  transition:
+    max-width 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.45s ease,
+    transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: max-width, opacity, transform;
+}
+
+/* Show actions only when bar is active */
+.livelang-bar.is-active .livelang-bar-actions {
+  max-width: 350px;
+  opacity: 1;
+  transform: translateX(0) scale(1);
+  margin-left: 4px;
+}
+
+.livelang-bar.is-active {
+  gap: 6px;
+}
+
+.livelang-bar-actions button {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #333333;
+}
+
+.livelang-bar-actions button:hover {
+  background: #f0f0f1;
+  color: $livelang-dark;
+}
+
+.livelang-global-label {
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #6a6a6a;
+  font-weight: 600;
+}
+
+/* Main Translate button */
+#livelang-toggle {
+  .livelang-bar-main {
+    border: none;
+    padding: 12px 18px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #5a8aff, #3757d6);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+    opacity: 1;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    will-change: transform, box-shadow;
+  }
+}
+
+.livelang-bar.is-active .livelang-bar-main {
+  background: $livelang-active-bg !important;
+}
+
+/* Language Switcher Dropdown */
+.livelang-language-dropdown {
+  position: relative;
+  display: inline-block;
+
+  .livelang-language-toggle {
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #333333;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.25s ease;
+
+    &:hover {
+      background: #f0f0f1;
+    }
+
+    .livelang-toggle-icon {
+      display: inline-block;
+      font-size: 11px;
+      transition: transform 0.3s ease;
+    }
+  }
+
+  &.open .livelang-language-toggle {
+    background: #f0f0f1;
+
+    .livelang-toggle-icon {
+      transform: rotate(180deg);
+    }
+  }
+
+  .livelang-language-list {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    list-style: none;
+    padding: 8px 0;
+    margin: 0;
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    min-width: 180px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    transition:
+      opacity 0.25s ease,
+      visibility 0.25s ease,
+      transform 0.25s ease;
+    z-index: 10000;
+
+    li {
+      margin: 0;
+      padding: 0;
+
+      a {
+        display: block;
+        padding: 10px 16px;
+        text-decoration: none;
+        color: #333333;
+        font-size: 14px;
+        transition: all 0.2s ease;
+        cursor: pointer;
+
+        &:hover {
+          background: #f5f5f6;
+          color: $livelang-primary;
+        }
+
+        &.active {
+          background: $livelang-primary;
+          color: #ffffff;
+          font-weight: 600;
+        }
+      }
+    }
+  }
+
+  &.open .livelang-language-list {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+}
+
+/* Language Switcher Dropdown */
+.livelang-menu-item ul {
+  display: unset !important;
+}
+.livelang-language-dropdown {
+  position: relative;
+  display: inline-block;
+
+  .livelang-language-toggle {
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #333333;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.25s ease;
+
+    &:hover {
+      background: #f0f0f1;
+    }
+
+    .livelang-toggle-icon {
+      display: inline-block;
+      font-size: 11px;
+      transition: transform 0.3s ease;
+    }
+  }
+
+  &.open .livelang-language-toggle {
+    background: #f0f0f1;
+
+    .livelang-toggle-icon {
+      transform: rotate(180deg);
+    }
+  }
+
+  .livelang-language-list {
+    max-height: 600px;
+    overflow-y: auto;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    list-style: none;
+    padding: 8px 0;
+    margin: 0;
+    background: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    min-width: 180px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    transition:
+      opacity 0.25s ease,
+      visibility 0.25s ease,
+      transform 0.25s ease;
+    z-index: 10000;
+
+    li {
+      margin: 0;
+      padding: 0;
+
+      a {
+        width: 100%;
+        display: block;
+        padding: 10px 16px;
+        text-decoration: none;
+        color: #333333;
+        font-size: 14px;
+        transition: all 0.2s ease;
+        cursor: pointer;
+
+        &:hover {
+          background: #f5f5f6;
+          color: $livelang-primary;
+        }
+
+        &.active {
+          background: $livelang-primary;
+          color: #ffffff;
+          font-weight: 600;
+        }
+      }
+    }
+  }
+
+  &.open .livelang-language-list {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+}
+
+/* Edit mode: disable links so user accidentally navigate না করে */
+.livelang-edit-mode a {
+  cursor: default !important;
+}
+
+/* Edit mode: highlight editable elements on hover - using class instead of :hover to avoid parent cascade */
+.livelang-hovering {
+  outline: #777777 dashed 2px !important;
+  cursor: pointer !important;
+}
+/* Edit mode: highlight editable elements on hover - for buttons */
+.livelang-hovering:not(button) {
+  background: #b7b7b712 !important;
+}
+
+/* Active editing state - override hover with solid outline */
+[contenteditable="true"],
+.livelang-temp-input,
+.livelang-temp-placeholder-input {
+  outline: 2px dashed #777777 !important;
+}
+
+/* Background color for non-button elements only */
+[contenteditable="true"]:not(button),
+.livelang-temp-input:not(button),
+.livelang-temp-placeholder-input:not(button) {
+  background: #b7b7b712 !important;
+}
+
+/* Dropdown inside the bottom bar should open upwards */
+.livelang-bar .livelang-language-dropdown .livelang-language-list {
+  top: auto;
+  bottom: calc(100% + 8px);
+  transform: translateY(8px);
+}
+
+.livelang-bar .livelang-language-dropdown.open .livelang-language-list {
+  transform: translateY(0);
+}
