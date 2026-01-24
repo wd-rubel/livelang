@@ -63,6 +63,14 @@ class LiveLang_DB {
         return $wpdb->get_row( $sql );
     }
 
+    public function get_translations_for_global() {
+        global $wpdb;
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+        $sql = $wpdb->prepare( "SELECT * FROM {$this->table} WHERE is_global = 1 AND status = 'active'" );
+        // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+        return $wpdb->get_results( $sql );
+    }
+
     public function get_all( $limit = 200 ) {
         global $wpdb;
         $limit = intval( $limit );

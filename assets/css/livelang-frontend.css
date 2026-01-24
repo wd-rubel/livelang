@@ -62,6 +62,7 @@
   gap: 4px;
   color: #6a6a6a;
   font-weight: 600;
+  display: none;
 }
 
 /* Main Translate button */
