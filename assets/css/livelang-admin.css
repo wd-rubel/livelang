@@ -1,5 +1,8 @@
 /* LiveLang Admin Styles */
-
+.toplevel_page_livelang img {
+    height: 20px;
+    width: 20px;
+}
 .livelang-languages-actions {
   display: flex;
   gap: 10px;

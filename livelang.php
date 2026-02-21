@@ -19,6 +19,7 @@ define( 'LIVELANG_VERSION', '1.0.2' );
 define( 'LIVELANG_PLUGIN_FILE', __FILE__ );
 define( 'LIVELANG_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'LIVELANG_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+define( 'LIVELANG_PLUGIN_BASE', plugin_basename( LIVELANG_PLUGIN_FILE ) );
 
 require_once LIVELANG_PLUGIN_DIR . 'includes/class-livelang-db.php';
 require_once LIVELANG_PLUGIN_DIR . 'includes/class-livelang-admin.php';

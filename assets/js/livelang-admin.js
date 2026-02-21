@@ -109,27 +109,13 @@ document.addEventListener("DOMContentLoaded", function () {
   function showUpgradeNotice() {
     var container = document.getElementById("livelang-tab-languages");
     if (!container) return;
-
-    var existing = document.getElementById("livelang-upgrade-notice");
-    if (existing) {
-      clearTimeout(existing._hideTimeout);
-      existing.parentNode.removeChild(existing);
-    }
-
     var notice = document.createElement("div");
     notice.id = "livelang-upgrade-notice";
     notice.className = "notice notice-warning";
     notice.style.marginBottom = "12px";
     notice.innerHTML =
-      "<p><strong>Maximum 3 languages reached.</strong> Upgrade to the Pro version for unlimited languages.</p>";
+      "<p><strong>Maximum 3 languages reached.</strong> <a href='https://livelang.pro/pricing' target='_blank' style='color: #0073aa; text-decoration: none;'>Upgrade</a> to the Pro version for unlimited languages.</p>";
     container.insertBefore(notice, container.firstChild);
-
-    // Auto-hide after 5 seconds
-    notice._hideTimeout = setTimeout(function () {
-      if (notice && notice.parentNode) {
-        notice.parentNode.removeChild(notice);
-      }
-    }, 5000);
   }
 
   function renderLanguages(languages) {
@@ -238,20 +224,20 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function addLanguage() {
     // If already at or above limit, show upgrade notice and do not proceed
-    if (languagesCount >= 3) {
+    if (!LiveLangAdminSettings.isPro && languagesCount >= 3) {
       showUpgradeNotice();
       return;
     }
     var codeInput = document.getElementById("livelang-language-code");
-    var labelInput = document.getElementById("livelang-language-label");
-
-    if (!codeInput || !labelInput) return;
+    if (!codeInput) return;
 
     var code = codeInput.value.trim();
-    var label = labelInput.value.trim();
+    // Get label from the option text, stripping the (code) part
+    var selectedOption = codeInput.options[codeInput.selectedIndex];
+    var label = selectedOption ? selectedOption.text.split(' (')[0] : '';
 
     if (!code || !label) {
-      alert("Please fill in both code and label");
+      alert("Please select a language");
       return;
     }
 
@@ -268,8 +254,6 @@ document.addEventListener("DOMContentLoaded", function () {
         try {
           var response = JSON.parse(xhr.responseText);
           if (response.success) {
-            codeInput.value = "";
-            labelInput.value = "";
             loadLanguages();
           } else {
             alert(response.data.message || "Error adding language");

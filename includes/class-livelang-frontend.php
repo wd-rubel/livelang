@@ -14,8 +14,7 @@ class LiveLang_Frontend {
 
        
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
-        add_action( 'wp_ajax_livelang_save_translation', array( $this, 'ajax_save_translation' ) );
-        add_action( 'wp_ajax_nopriv_livelang_save_translation', array( $this, 'ajax_not_allowed' ) );
+        add_action( 'rest_api_init', array( $this, 'register_rest_routes' ) );
         add_shortcode( 'livelang_language_switcher', array( $this, 'livelang_language_switcher' ) );
        
 
@@ -33,6 +32,10 @@ class LiveLang_Frontend {
         add_filter( 'post_type_link', array( $this, 'filter_url' ), 10, 1 );
         add_filter( 'term_link', array( $this, 'filter_url' ), 10, 1 );
         add_filter( 'wp_nav_menu_objects', array( $this, 'filter_menu_urls' ), 10, 1 );
+        add_filter( 'nav_menu_link_attributes', array( $this, 'nav_menu_link_attributes' ), 10, 4 );
+        add_filter( 'wp_get_nav_menu_items', array( $this, 'expand_language_menu' ), 20 );
+        add_filter( 'walker_nav_menu_start_el', array( $this, 'livelang_menu_item_output' ), 15, 4 );
+        add_action( 'wp_footer', array( $this, 'render_editor_bar' ) );
     }
 
     function add_rewrite_tag() {
@@ -169,8 +172,54 @@ class LiveLang_Frontend {
         }
     }
    
-    public function ajax_not_allowed() {
-        wp_send_json_error( array( 'message' => 'Not allowed' ), 403 );
+    public function register_rest_routes() {
+        register_rest_route( 'livelang/v1', '/save', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'rest_save_translation' ),
+            'permission_callback' => array( $this, 'rest_permission_check' ),
+        ) );
+    }
+
+    public function rest_permission_check() {
+        return $this->is_enabled_for_user();
+    }
+
+    public function rest_save_translation( $request ) {
+        $params = $request->get_params();
+        
+        $original   = isset( $params['original'] ) ? sanitize_text_field( $params['original'] ) : '';
+        $translated = isset( $params['translated'] ) ? sanitize_text_field( $params['translated'] ) : '';
+        $slug       = isset( $params['slug'] ) ? sanitize_text_field( $params['slug'] ) : '';
+        $language   = isset( $params['language'] ) ? sanitize_text_field( $params['language'] ) : '';
+        $is_global  = isset( $params['is_global'] ) ? (int) $params['is_global'] : 0;
+
+        if ( $original === '' || $translated === '' ) {
+            return new WP_Error( 'empty_text', 'Empty text', array( 'status' => 400 ) );
+        }
+
+        // update if exists
+        $existing = $this->db->get_translation_by_original_and_slug( $original, $slug, $language );
+        if ( $existing ) {
+            $this->db->update(
+                $existing->id,
+                array(
+                    'translated_text' => $translated,
+                    'is_global'       => $is_global,
+                )
+            );
+        } else {
+            $this->db->insert(
+                array(
+                    'original_text'   => $original,
+                    'translated_text' => $translated,
+                    'slug'            => $slug,
+                    'language'        => $language,
+                    'is_global'       => $is_global,
+                )
+            );
+        }
+
+        return new WP_REST_Response( array( 'success' => true ), 200 );
     }
 
     protected function is_enabled_for_user() {
@@ -266,7 +315,7 @@ class LiveLang_Frontend {
 
             // Skip translation if text contains numbers and translate_numbers is disabled
             if ( ! $translate_numbers && $this->text_contains_numbers( $original ) ) {
-                continue;
+                $translated = $this->get_only_number_from_transation( $original ) . ' ' . $this->get_only_text_from_transation( $translated );
             }
 
             // Use a unique marker to prevent double-replacement (when original appears in translated)
@@ -305,6 +354,14 @@ class LiveLang_Frontend {
      */
     protected function text_contains_numbers( $text ) {
         return (bool) preg_match( '/\d/', $text );
+    }
+
+    protected function get_only_text_from_transation ($text) {
+        return preg_replace('/\p{N}/u', '', $text);
+    }
+
+    protected function get_only_number_from_transation ($text) {
+        return preg_replace('/[^\p{N}]/u', '', $text);
     }
 
 
@@ -401,12 +458,6 @@ class LiveLang_Frontend {
     
 
     public function enqueue_assets() {
-        if ( ! $this->is_enabled_for_user() ) {
-            return;
-        }
-
-        $slug = $this->get_current_slug();
-
         wp_enqueue_style(
             'livelang-frontend',
             LIVELANG_PLUGIN_URL . 'assets/css/livelang-frontend.css',
@@ -421,6 +472,16 @@ class LiveLang_Frontend {
             LIVELANG_VERSION,
             true
         );
+
+        if ( $this->is_enabled_for_user() ) {
+            wp_enqueue_script(
+                'livelang-frontend-editor',
+                LIVELANG_PLUGIN_URL . 'assets/js/livelang-frontend-editor.js',
+                array(),
+                LIVELANG_VERSION,
+                true
+        );
+        }
 
         $slug         = $this->get_current_slug();
         $translations = $this->db->get_translations_for_slug( $slug );
@@ -447,8 +508,9 @@ class LiveLang_Frontend {
             'livelang-frontend',
             'LiveLangSettings',
             array(
-                'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-                'nonce'   => wp_create_nonce( 'livelang_save' ),
+                'restUrl' => esc_url_raw( rest_url( 'livelang/v1' ) ),
+                'nonce'   => wp_create_nonce( 'wp_rest' ),
+                'enable_translation' => $this->is_enabled_for_user(),
                 'slug'    => $slug,
                 'currentLanguage' => $this->getCurrentLanguage(),
                 'homepageSlug' => $this->get_homepage_slug(),
@@ -466,54 +528,15 @@ class LiveLang_Frontend {
                     'cancel'     => __( 'Cancel', 'livelang' ),
                     'undo'       => __( 'Undo', 'livelang' ),
                     'redo'       => __( 'Redo', 'livelang' ),
+                    'translate'  => __( 'Translate', 'livelang' ),
+                    'translating' => __( 'Translating...', 'livelang' ),
+                    'translated' => __( 'Translated', 'livelang' ),
                 ),
             )
         );
     }
 
-    public function ajax_save_translation() {
-        check_ajax_referer( 'livelang_save' );
 
-        if ( ! $this->is_enabled_for_user() ) {
-            wp_send_json_error( array( 'message' => 'Not allowed' ), 403 );
-        }
-
-        $original   = isset( $_POST['original'] ) ? sanitize_text_field( wp_unslash( $_POST['original'] ) ) : '';
-        $translated = isset( $_POST['translated'] ) ? sanitize_text_field( wp_unslash( $_POST['translated'] ) ) : '';
-        $slug       = isset( $_POST['slug'] ) ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
-        $language   = isset( $_POST['language'] ) ? sanitize_text_field( wp_unslash( $_POST['language'] ) ) : '';
-        $is_global  = isset( $_POST['is_global'] ) ? (int) $_POST['is_global'] : 0;
-
-
-        if ( $original === '' || $translated === '' ) {
-            wp_send_json_error( array( 'message' => 'Empty text' ) );
-        }
-
-        // update if exists
-        $existing = $this->db->get_translation_by_original_and_slug( $original, $slug, $language );
-        if ( $existing ) {
-            $this->db->update(
-                $existing->id,
-                array(
-                    'translated_text' => $translated,
-                    'is_global'       => $is_global,
-                )
-            );
-
-        } else {
-            $this->db->insert(
-                array(
-                    'original_text'   => $original,
-                    'translated_text' => $translated,
-                    'slug'            => $slug,
-                    'language'        => $language,
-                    'is_global'       => $is_global,
-                )
-            );
-        }
-
-        wp_send_json_success();
-    }
 
     /**
      * Get all supported languages
@@ -522,12 +545,6 @@ class LiveLang_Frontend {
      * @return array
      */
     function get_current_language() {
-        static $languages = null;
-
-        if ( $languages !== null ) {
-            return $languages;
-        }
-
         // Get languages from database
         $languages_data = $this->get_languages_for_frontend();
         $languages = array();
@@ -569,7 +586,176 @@ class LiveLang_Frontend {
         return 'en';
     }
 
+    function livelang_language_to_country($lang) {
 
+        $map = apply_filters('livelang_language_flags', [
+
+            // A
+            'af' => 'za', // Afrikaans → South Africa
+            'sq' => 'al',
+            'am' => 'et',
+            'ar' => 'sa',
+            'hy' => 'am',
+            'az' => 'az',
+
+            // B
+            'eu' => 'es',
+            'be' => 'by',
+            'bn' => 'bd',
+            'bs' => 'ba',
+            'bg' => 'bg',
+
+            // C
+            'ca' => 'es',
+            'zh' => 'cn',
+            'hr' => 'hr',
+            'cs' => 'cz',
+
+            // D
+            'da' => 'dk',
+            'nl' => 'nl',
+
+            // E
+            'en' => 'us', // default (can override)
+            'et' => 'ee',
+
+            // F
+            'fi' => 'fi',
+            'fr' => 'fr',
+
+            // G
+            'gl' => 'es',
+            'ka' => 'ge',
+            'de' => 'de',
+            'el' => 'gr',
+            'gu' => 'in',
+
+            // H
+            'he' => 'il',
+            'hi' => 'in',
+            'hu' => 'hu',
+
+            // I
+            'is' => 'is',
+            'id' => 'id',
+            'it' => 'it',
+
+            // J
+            'ja' => 'jp',
+
+            // K
+            'kn' => 'in',
+            'kk' => 'kz',
+            'km' => 'kh',
+            'ko' => 'kr',
+
+            // L
+            'lo' => 'la',
+            'lv' => 'lv',
+            'lt' => 'lt',
+
+            // M
+            'mk' => 'mk',
+            'ms' => 'my',
+            'ml' => 'in',
+            'mt' => 'mt',
+            'mr' => 'in',
+            'mn' => 'mn',
+
+            // N
+            'ne' => 'np',
+            'nb' => 'no',
+            'nn' => 'no',
+
+            // P
+            'fa' => 'ir',
+            'pl' => 'pl',
+            'pt' => 'pt',
+            'pa' => 'in',
+
+            // R
+            'ro' => 'ro',
+            'ru' => 'ru',
+
+            // S
+            'sr' => 'rs',
+            'si' => 'lk',
+            'sk' => 'sk',
+            'sl' => 'si',
+            'es' => 'es',
+            'sw' => 'ke',
+            'sv' => 'se',
+
+            // T
+            'ta' => 'in',
+            'te' => 'in',
+            'th' => 'th',
+            'tr' => 'tr',
+
+            // U
+            'uk' => 'ua',
+            'ur' => 'pk',
+            'uz' => 'uz',
+
+            // V
+            'vi' => 'vn',
+
+            // W
+            'cy' => 'gb',
+        ]);
+
+        return $map[$lang] ?? 'un'; // fallback
+    }
+
+    function get_flag_url( $code ) {
+        $country_code = $this->livelang_language_to_country($code);
+        return plugins_url( 'assets/images/flags/' . $country_code . '.webp', LIVELANG_PLUGIN_FILE );
+    }
+
+    /**
+     * Render the frontend editor bar
+     */
+    public function render_editor_bar() {
+        if ( ! $this->is_enabled_for_user() ) {
+            return;
+        }
+
+        $languages = $this->get_current_language();
+        $current   = $this->getCurrentLanguage();
+        $current_label = isset( $languages[ $current ] ) ? $languages[ $current ] : 'Language';
+        
+        $lang_dropdown_display = count($languages) <= 1 ? 'none' : 'block';
+        ?>
+        <div id="livelang-toggle" class="livelang-bar" contenteditable="false">
+            <div class="livelang-bar-actions">
+                <label class="livelang-global-label">
+                    <input type="checkbox" class="livelang-global"> <?php _e( 'Global?', 'livelang' ); ?>
+                </label>
+                
+                <div class="livelang-language-dropdown" style="display: <?php echo esc_attr($lang_dropdown_display); ?>">
+                    <button class="livelang-language-toggle ddd" type="button">
+                        <img src="<?php echo esc_url($this->get_flag_url($current)); ?>" class="livelang-current-language-flag">
+                        <span class="livelang-current-language-label"><?php echo esc_html($current_label); ?></span>
+                        <span class="livelang-toggle-icon">▼</span>
+                    </button>
+                    <ul class="livelang-language-list">
+                        <?php foreach ( $languages as $code => $label ) : 
+                            $active_class = $code === $current ? ' class="active"' : '';
+                        ?>
+                            <li>
+                                <a href="#" data-lang="<?php echo esc_attr($code); ?>"<?php echo $active_class; ?>>
+                                    <img src="<?php echo esc_url($this->get_flag_url($code)); ?>" class="livelang-language-flag">
+                                    <span class="livelang-language-label"><?php echo esc_html($label); ?></span>
+                                </a>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            </div>
+            <button type="button" class="livelang-bar-main"><?php _e( 'Translate', 'livelang' ); ?></button>
+        </div>
+        <?php
+    }
 
     /**
      * Render language switcher dropdown
@@ -582,15 +768,43 @@ class LiveLang_Frontend {
         ob_start();
 
         echo '<div id="livelang-language-switcher" class="livelang-language-dropdown">';
-        echo '<button class="livelang-language-toggle">' . esc_html( $current_label ) . ' <span class="livelang-toggle-icon">▼</span></button>';
+        echo '<button class="livelang-language-toggle"><img src="' . esc_url($this->get_flag_url($current)) . '" class="livelang-current-language-flag"><span class="livelang-current-language-label">' . esc_html( $current_label ) . '</span> <span class="livelang-toggle-icon">▼</span></button>';
         echo '<ul class="livelang-language-list">';
 
         foreach ( $languages as $code => $label ) {
             $is_active = $current === $code ? ' class="active"' : '';
             printf(
-                '<li><a href="#" data-lang="%s"%s>%s</a></li>',
+                '<li><a href="#" data-lang="%s"%s><img src="%s" class="livelang-language-flag"><span class="livelang-language-label">%s</span></a></li>',
                 esc_attr($code),
                 $is_active,
+                esc_url($this->get_flag_url($code)),
+                esc_html($label)
+            );
+        }
+
+        echo '</ul>';
+        echo '</div>';
+        return ob_get_clean();
+    }
+
+    function livelang_language_switcher_for_nav_menu() {
+        $languages = $this->get_current_language();
+        $current   = $this->getCurrentLanguage();
+        $current_label = isset( $languages[ $current ] ) ? $languages[ $current ] : 'Language';
+
+        ob_start();
+
+        echo '<div id="livelang-language-switcher-for-nav-menu" class="livelang-language-dropdown">';
+        echo '<button class="livelang-language-toggle"><img src="' . esc_url($this->get_flag_url($current)) . '" class="livelang-current-language-flag"><span class="livelang-language-label">' . esc_html( $current_label ) . '</span> <span class="livelang-toggle-icon">▼</span></button>';
+        echo '<ul class="livelang-language-list-for-nav-menu sub-menu">';
+
+        foreach ( $languages as $code => $label ) {
+            $is_active = $current === $code ? ' class="active"' : '';
+            printf(
+                '<li><a href="#" data-lang="%s"%s><img src="%s" class="livelang-language-flag"><span class="livelang-language-label">%s</span></a></li>',
+                esc_attr($code),
+                $is_active,
+                esc_url($this->get_flag_url($code)),
                 esc_html($label)
             );
         }
@@ -616,7 +830,7 @@ class LiveLang_Frontend {
      * Filter URLs to include current language prefix
      */
     public function filter_url( $url ) {
-        if ( is_admin() || ! $url ) {
+        if ( is_admin() || ! $url || $url === '#' || strpos( $url, '#' ) === 0 ) {
             return $url;
         }
 
@@ -678,5 +892,152 @@ class LiveLang_Frontend {
         $frag   = isset($parsed['fragment']) ? '#' . $parsed['fragment'] : '';
         
         return $scheme . $host . $port . $path . $query . $frag;
+    }
+
+    
+    /**
+     * Expand the single language switcher menu item into multiple language items
+     * This allows WordPress walker to handle rendering and classes properly.
+     *
+     * @param array $items Menu items
+     * @return array
+     */
+    public function expand_language_menu( $items ) {
+        if ( is_admin() || empty( $items ) ) {
+            return $items;
+        }
+
+        $new_items = array();
+        $languages = $this->get_current_language();
+        $current   = $this->getCurrentLanguage();
+        
+        static $id_counter = 0;
+
+        foreach ( $items as $item ) {
+            $new_items[] = $item;
+
+            // Target our specific menu item
+            if ( $item->url === '#livelang_switcher' || in_array( 'menu-item-language-switcher', (array) $item->classes ) ) {
+                
+                // 1. Update the parent item as the "Current Language" label
+                $current_label = isset( $languages[ $current ] ) ? $languages[ $current ] : 'Language';
+                $item->title = esc_html( $current_label );
+                $item->url = '#'; 
+                
+                if ( ! in_array( 'menu-item-has-children', (array) $item->classes ) ) {
+                    $item->classes[] = 'menu-item-has-children';
+                }
+                $item->classes[] = 'livelang-menu-item-parent';
+                $item->classes[] = 'livelang-language-dropdown';
+                $item->livelang_type = 'parent';
+
+                $parent_id = ! empty( $item->db_id ) ? $item->db_id : $item->ID;
+
+                // 2. Add ALL languages as children (Submenu)
+                $order_base = 10000; // prevent collision with real menu items
+
+                foreach ( $languages as $code => $label ) {
+                    $lang_item = new stdClass();
+
+                    $lang_item->ID = 2000000 + ( ++$id_counter );
+                    $lang_item->db_id = $lang_item->ID;
+                    $lang_item->post_type = 'nav_menu_item';
+                    $lang_item->post_status = 'publish';
+                    $lang_item->type = 'custom';
+                    $lang_item->object = 'custom';
+                    $lang_item->object_id = $lang_item->ID;
+
+                    $lang_item->title = $label;
+                    $lang_item->url = '#';
+                    $lang_item->menu_item_parent = (int) $item->ID;
+                    $lang_item->menu_order = $item->menu_order + 100 + $id_counter;
+
+                    $lang_item->classes = array(
+                        'menu-item',
+                        'menu-item-type-custom',
+                        'menu-item-object-custom',
+                        'livelang-language-item',
+                        'livelang-lang-' . $code
+                    );
+
+                    $lang_item->livelang_code = $code;
+                    $lang_item->livelang_type = 'child';
+
+
+                    $new_items[] = $lang_item;
+                }
+
+
+            }
+        }
+        return $new_items;
+    }
+
+    /**
+     * Add data-lang attribute to language switcher links
+     */
+    public function nav_menu_link_attributes( $atts, $item, $args, $depth ) {
+        // Try to get lang code from property first
+        if ( isset( $item->livelang_code ) ) {
+            $atts['data-lang'] = $item->livelang_code;
+        } else {
+            // Fallback: check classes (useful if property was lost during WP setup)
+            foreach ( (array) $item->classes as $class ) {
+                if ( is_string( $class ) && strpos( $class, 'livelang-lang-' ) === 0 ) {
+                    $atts['data-lang'] = str_replace( 'livelang-lang-', '', $class );
+                    break;
+                }
+            }
+        }
+        
+        // Add toggle class to the parent link for JS compatibility
+        if ( property_exists( $item, 'classes' ) && is_array( $item->classes ) && in_array( 'livelang-menu-item-parent', $item->classes ) ) {
+            $atts['class'] = ( isset( $atts['class'] ) ? $atts['class'] . ' ' : '' ) . 'livelang-language-toggle-inside-menu';
+        }
+        
+        return $atts;
+    }
+
+    /**
+     * Fallback for custom walkers that don't use nav_menu_link_attributes
+     */
+    public function livelang_menu_item_output( $item_output, $item, $depth, $args ) {
+        if ( is_admin() ) {
+            return $item_output;
+        }
+
+        $lang_code = '';
+        if ( isset( $item->livelang_code ) ) {
+            $lang_code = $item->livelang_code;
+        } else {
+            foreach ( (array) $item->classes as $class ) {
+                if ( is_string( $class ) && strpos( $class, 'livelang-lang-' ) === 0 ) {
+                    $lang_code = str_replace( 'livelang-lang-', '', $class );
+                    break;
+                }
+            }
+        }
+
+        if ( $lang_code ) {
+            $flag_url = $this->get_flag_url( $lang_code );
+            $flag_html = '<img src="' . esc_url( $flag_url ) . '" class="livelang-language-flag" style="width:25px; height:15px; margin-right:10px; vertical-align:middle;">';
+            
+            // Inject data-lang attribute into the first <a> tag if not present
+            if ( strpos( $item_output, 'data-lang=' ) === false ) {
+                $item_output = preg_replace( '/<a /', '<a data-lang="' . esc_attr( $lang_code ) . '" ', $item_output, 1 );
+            }
+
+            // Inject flag before the title inside the <a> tag
+            $item_output = preg_replace( '/(<a[^>]*>)(.*)(<\/a>)/isU', '$1' . $flag_html . '<span class="livelang-language-label">$2</span>$3', $item_output );
+        }
+
+        // Inject toggle class for parent if missed
+        if ( property_exists( $item, 'classes' ) && is_array( $item->classes ) && in_array( 'livelang-menu-item-parent', $item->classes ) ) {
+             if ( strpos( $item_output, 'livelang-language-toggle' ) === false ) {
+                 $item_output = preg_replace( '/class="([^"]*)"/', 'class="$1 livelang-language-toggle-inside-menu"', $item_output, 1 );
+             }
+        }
+
+        return $item_output;
     }
 }

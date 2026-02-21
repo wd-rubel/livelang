@@ -78,7 +78,9 @@ $transition-smooth: cubic-bezier(0.16, 1, 0.3, 1);
   font-weight: 600;
   display: none;
 }
-
+.elementor-editor-active .livelang-bar {
+  display: none;
+}
 /* Main Translate button */
 #livelang-toggle {
   .livelang-bar-main {
@@ -103,6 +105,10 @@ $transition-smooth: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* Language Switcher Dropdown */
+.livelang-current-language-flag {
+  width: 25px;
+  height: 15px;
+}
 .livelang-language-dropdown {
   position: relative;
   display: inline-block;
@@ -145,7 +151,7 @@ $transition-smooth: cubic-bezier(0.16, 1, 0.3, 1);
     top: calc(100% + 4px);
     left: 0;
     list-style: none;
-    padding: 8px 0;
+    padding: 0;
     margin: 0;
     background: #ffffff;
     border: 1px solid #e0e0e0;
@@ -166,14 +172,16 @@ $transition-smooth: cubic-bezier(0.16, 1, 0.3, 1);
       padding: 0;
 
       a {
-        display: block;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
         padding: 10px 16px;
         text-decoration: none;
         color: #333333;
         font-size: 14px;
         transition: all 0.2s ease;
         cursor: pointer;
-
+        width: 100%;
         &:hover {
           background: #f5f5f6;
           color: $livelang-primary;
@@ -183,6 +191,10 @@ $transition-smooth: cubic-bezier(0.16, 1, 0.3, 1);
           background: $livelang-primary;
           color: #ffffff;
           font-weight: 600;
+        }
+        img {
+          width: 25px;
+          height: 15px;
         }
       }
     }
@@ -236,62 +248,69 @@ $transition-smooth: cubic-bezier(0.16, 1, 0.3, 1);
     }
   }
 
-  .livelang-language-list {
-    max-height: 600px;
-    overflow-y: auto;
-    position: absolute;
-    top: calc(100% + 4px);
-    left: 0;
-    list-style: none;
-    padding: 8px 0;
-    margin: 0;
-    background: #ffffff;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    min-width: 180px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(-8px);
-    transition:
-      opacity 0.25s ease,
-      visibility 0.25s ease,
-      transform 0.25s ease;
-    z-index: 10000;
+  // .livelang-language-list {
+  //   max-height: 600px;
+  //   overflow-y: auto;
+  //   position: absolute;
+  //   top: calc(100% + 4px);
+  //   left: 0;
+  //   list-style: none;
+  //   padding: 8px 0;
+  //   margin: 0;
+  //   background: #ffffff;
+  //   border: 1px solid #e0e0e0;
+  //   border-radius: 8px;
+  //   min-width: 180px;
+  //   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  //   opacity: 0;
+  //   visibility: hidden;
+  //   transform: translateY(-8px);
+  //   transition:
+  //     opacity 0.25s ease,
+  //     visibility 0.25s ease,
+  //     transform 0.25s ease;
+  //   z-index: 10000;
 
-    li {
-      margin: 0;
-      padding: 0;
+  //   li {
+  //     margin: 0;
+  //     padding: 0;
 
-      a {
-        width: 100%;
-        display: block;
-        padding: 10px 16px;
-        text-decoration: none;
-        color: #333333;
-        font-size: 14px;
-        transition: all 0.2s ease;
-        cursor: pointer;
+  //     a {
+  //       width: 100%;
+  //       display: block;
+  //       padding: 10px 16px;
+  //       text-decoration: none;
+  //       color: #333333;
+  //       font-size: 14px;
+  //       transition: all 0.2s ease;
+  //       cursor: pointer;
 
-        &:hover {
-          background: #f5f5f6;
-          color: $livelang-primary;
-        }
+  //       &:hover {
+  //         background: #f5f5f6;
+  //         color: $livelang-primary;
+  //       }
 
-        &.active {
-          background: $livelang-primary;
-          color: #ffffff;
-          font-weight: 600;
-        }
-      }
-    }
-  }
+  //       &.active {
+  //         background: $livelang-primary;
+  //         color: #ffffff;
+  //         font-weight: 600;
+  //       }
+  //     }
+  //   }
+  // }
 
   &.open .livelang-language-list {
     opacity: 1;
     visibility: visible;
     transform: translateY(0);
   }
+}
+
+// Menu item
+.menu-item.livelang-language-item {
+ a {
+    justify-content: start;
+ }
 }
 
 /* Edit mode: disable links so user accidentally navigate না করে */

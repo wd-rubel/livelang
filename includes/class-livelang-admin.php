@@ -8,11 +8,87 @@ class LiveLang_Admin {
     /** @var LiveLang_DB */
     protected $db;
 
+    protected $available_langs = array(
+        'af' => 'Afrikaans',
+        'sq' => 'Albanian',
+        'am' => 'Amharic',
+        'ar' => 'Arabic',
+        'hy' => 'Armenian',
+        'az' => 'Azerbaijani',
+        'eu' => 'Basque',
+        'be' => 'Belarusian',
+        'bn' => 'Bengali',
+        'bs' => 'Bosnian',
+        'bg' => 'Bulgarian',
+        'ca' => 'Catalan',
+        'zh' => 'Chinese',
+        'hr' => 'Croatian',
+        'cs' => 'Czech',
+        'da' => 'Danish',
+        'nl' => 'Dutch',
+        'en' => 'English',
+        'et' => 'Estonian',
+        'fi' => 'Finnish',
+        'fr' => 'French',
+        'gl' => 'Galician',
+        'ka' => 'Georgian',
+        'de' => 'German',
+        'el' => 'Greek',
+        'gu' => 'Gujarati',
+        'he' => 'Hebrew',
+        'hi' => 'Hindi',
+        'hu' => 'Hungarian',
+        'is' => 'Icelandic',
+        'id' => 'Indonesian',
+        'it' => 'Italian',
+        'ja' => 'Japanese',
+        'kn' => 'Kannada',
+        'kk' => 'Kazakh',
+        'km' => 'Khmer',
+        'ko' => 'Korean',
+        'lo' => 'Lao',
+        'lv' => 'Latvian',
+        'lt' => 'Lithuanian',
+        'mk' => 'Macedonian',
+        'ms' => 'Malay',
+        'ml' => 'Malayalam',
+        'mt' => 'Maltese',
+        'mr' => 'Marathi',
+        'mn' => 'Mongolian',
+        'ne' => 'Nepali',
+        'nb' => 'Norwegian Bokmål',
+        'nn' => 'Norwegian Nynorsk',
+        'fa' => 'Persian',
+        'pl' => 'Polish',
+        'pt' => 'Portuguese',
+        'pa' => 'Punjabi',
+        'ro' => 'Romanian',
+        'ru' => 'Russian',
+        'sr' => 'Serbian',
+        'si' => 'Sinhala',
+        'sk' => 'Slovak',
+        'sl' => 'Slovenian',
+        'es' => 'Spanish',
+        'sw' => 'Swahili',
+        'sv' => 'Swedish',
+        'ta' => 'Tamil',
+        'te' => 'Telugu',
+        'th' => 'Thai',
+        'tr' => 'Turkish',
+        'uk' => 'Ukrainian',
+        'ur' => 'Urdu',
+        'uz' => 'Uzbek',
+        'vi' => 'Vietnamese',
+        'cy' => 'Welsh',
+    );
+
     public function __construct( $db ) {
         $this->db = $db;
 
         add_action( 'admin_menu', array( $this, 'register_menu' ) );
         add_action( 'admin_init', array( $this, 'register_settings' ) );
+        // Add Plugin actions
+		add_filter( 'plugin_action_links_' . LIVELANG_PLUGIN_BASE, [ $this, 'livelang_plugin_action_links' ], 10, 4 );
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
 
         add_action( 'wp_ajax_livelang_clear_translations', array( $this, 'ajax_clear_translations' ) );
@@ -26,6 +102,12 @@ class LiveLang_Admin {
         add_action( 'wp_ajax_livelang_get_languages', array( $this, 'ajax_get_languages' ) );
     }
 
+    public function livelang_plugin_action_links( $links, $plugin_file, $plugin_data, $context ) {
+        $settings_url = admin_url( 'admin.php?page=livelang-settings' );
+        $links[]      = '<a href="' . esc_url( $settings_url ) . '">' . esc_html__( 'Settings', 'livelang' ) . '</a>';
+        return $links;
+    }
+
     public function register_menu() {
         add_menu_page(
             __( 'LiveLang', 'livelang' ),
@@ -33,7 +115,7 @@ class LiveLang_Admin {
             'manage_options',
             'livelang',
             array( $this, 'render_translations_page' ),
-            'dashicons-translation',
+            LIVELANG_PLUGIN_URL . 'assets/images/livelang.png', // use png icon
             58
         );
 
@@ -57,7 +139,16 @@ class LiveLang_Admin {
     }
 
     public function register_settings() {
-        register_setting( 'livelang_settings_group', 'livelang_settings', array( $this, 'sanitize_settings' ) );
+        register_setting( 
+            'livelang_settings_group', 
+            'livelang_settings', 
+            array(
+                'sanitize_callback' => array( $this, 'sanitize_settings' ),
+                'default' => array(
+                    'translate_numbers' => 1, // 👈 default checked
+                ) 
+            ) 
+        );
 
         add_settings_section(
             'livelang_main',
@@ -95,6 +186,21 @@ class LiveLang_Admin {
             array( $this, 'field_translate_numbers' ),
             'livelang-settings',
             'livelang_filters'
+        );
+
+        add_settings_section(
+            'livelang_maintenance',
+            __( 'Maintenance Actions', 'livelang' ),
+            '__return_false',
+            'livelang-settings'
+        );
+
+        add_settings_field(
+            'livelang_maintenance',
+            __( 'Clear All Translations', 'livelang' ),
+            array( $this, 'field_maintenance' ),
+            'livelang-settings',
+            'livelang_maintenance'
         );
     }
 
@@ -157,15 +263,24 @@ class LiveLang_Admin {
 
     public function field_translate_numbers() {
         $options = get_option( 'livelang_settings', array() );
-        $translate_numbers = ! empty( $options['translate_numbers'] ) ? 1 : 0;
+        $translate_numbers = isset($options['translate_numbers']) ? $options['translate_numbers'] : 1; 
         ?>
         <label>
-            <input type="checkbox" name="livelang_settings[translate_numbers]" value="1" <?php checked( $translate_numbers ); ?>>
+            <input type="checkbox" name="livelang_settings[translate_numbers]" value="1" <?php checked( 1, $translate_numbers ); ?>>
             <?php esc_html_e( 'Enable translation of text containing numbers', 'livelang' ); ?>
         </label>
         <p class="description">
             <?php esc_html_e( 'When disabled, text containing numbers (e.g., "10 English Books") will skip the number part (translate only "English Books").', 'livelang' ); ?>
         </p>
+        <?php
+    }
+
+    public function field_maintenance() {
+        ?>
+        <button class="button button-secondary" id="livelang-clear-translations-maintenance">
+            <?php esc_html_e( 'Clear All Translations', 'livelang' ); ?>
+        </button>
+        <p><?php esc_html_e( 'You can clear all stored translations. This action cannot be undone.', 'livelang' ); ?></p>
         <?php
     }
 
@@ -181,12 +296,6 @@ class LiveLang_Admin {
                 <a href="#" class="nav-tab nav-tab-active" data-livelang-tab="languages">
                     <?php esc_html_e( 'Languages', 'livelang' ); ?>
                 </a>
-                <a href="#" class="nav-tab nav-tab-active" data-livelang-tab="maintenance">
-                    <?php esc_html_e( 'Maintenance', 'livelang' ); ?>
-                </a>
-                <a href="#" class="nav-tab" data-livelang-tab="usage">
-                    <?php esc_html_e( 'Usage', 'livelang' ); ?>
-                </a>
                 <a href="#" class="nav-tab" data-livelang-tab="help">
                     <?php esc_html_e( 'Help Center', 'livelang' ); ?>
                 </a>
@@ -194,11 +303,13 @@ class LiveLang_Admin {
 
             <div id="livelang-tab-general" class="livelang-tab-panel is-active">
                 <form method="post" action="options.php">
+                    
                     <?php
                     settings_fields( 'livelang_settings_group' );
                     do_settings_sections( 'livelang-settings' );
                     submit_button();
                     ?>
+                    
                 </form>
             </div>
             
@@ -212,85 +323,13 @@ class LiveLang_Admin {
                     <select id="livelang-language-code" style="width: 200px; padding: 8px;">
                         <option value=""><?php esc_html_e( 'Select Language', 'livelang' ); ?></option>
                         <?php
-                        $available_langs = array(
-                            'af' => 'Afrikaans',
-                            'sq' => 'Albanian',
-                            'am' => 'Amharic',
-                            'ar' => 'Arabic',
-                            'hy' => 'Armenian',
-                            'az' => 'Azerbaijani',
-                            'eu' => 'Basque',
-                            'be' => 'Belarusian',
-                            'bn' => 'Bengali',
-                            'bs' => 'Bosnian',
-                            'bg' => 'Bulgarian',
-                            'ca' => 'Catalan',
-                            'zh' => 'Chinese',
-                            'hr' => 'Croatian',
-                            'cs' => 'Czech',
-                            'da' => 'Danish',
-                            'nl' => 'Dutch',
-                            'en' => 'English',
-                            'et' => 'Estonian',
-                            'fi' => 'Finnish',
-                            'fr' => 'French',
-                            'gl' => 'Galician',
-                            'ka' => 'Georgian',
-                            'de' => 'German',
-                            'el' => 'Greek',
-                            'gu' => 'Gujarati',
-                            'he' => 'Hebrew',
-                            'hi' => 'Hindi',
-                            'hu' => 'Hungarian',
-                            'is' => 'Icelandic',
-                            'id' => 'Indonesian',
-                            'it' => 'Italian',
-                            'ja' => 'Japanese',
-                            'kn' => 'Kannada',
-                            'kk' => 'Kazakh',
-                            'km' => 'Khmer',
-                            'ko' => 'Korean',
-                            'lo' => 'Lao',
-                            'lv' => 'Latvian',
-                            'lt' => 'Lithuanian',
-                            'mk' => 'Macedonian',
-                            'ms' => 'Malay',
-                            'ml' => 'Malayalam',
-                            'mt' => 'Maltese',
-                            'mr' => 'Marathi',
-                            'mn' => 'Mongolian',
-                            'ne' => 'Nepali',
-                            'nb' => 'Norwegian Bokmål',
-                            'nn' => 'Norwegian Nynorsk',
-                            'fa' => 'Persian',
-                            'pl' => 'Polish',
-                            'pt' => 'Portuguese',
-                            'pa' => 'Punjabi',
-                            'ro' => 'Romanian',
-                            'ru' => 'Russian',
-                            'sr' => 'Serbian',
-                            'si' => 'Sinhala',
-                            'sk' => 'Slovak',
-                            'sl' => 'Slovenian',
-                            'es' => 'Spanish',
-                            'sw' => 'Swahili',
-                            'sv' => 'Swedish',
-                            'ta' => 'Tamil',
-                            'te' => 'Telugu',
-                            'th' => 'Thai',
-                            'tr' => 'Turkish',
-                            'uk' => 'Ukrainian',
-                            'ur' => 'Urdu',
-                            'uz' => 'Uzbek',
-                            'vi' => 'Vietnamese',
-                            'cy' => 'Welsh',
-                        );
-                        foreach ( $available_langs as $code => $name ) {
+                        
+                        foreach ( $this->available_langs as $code => $name ) {
                             echo '<option value="' . esc_attr( $code ) . '">' . esc_html( $name . ' (' . $code . ')' ) . '</option>';
                         }
                         ?>
                     </select>
-                    <input type="text" id="livelang-language-label" placeholder="<?php esc_attr_e( 'Language Label (e.g., Spanish)', 'livelang' ); ?>" style="width: 200px; padding: 8px; margin-left: 10px;">
+
                     <button class="button button-primary" id="livelang-add-language-btn" style="margin-left: 10px;">
                         <?php esc_html_e( 'Add Language', 'livelang' ); ?>
                     </button>
@@ -310,38 +349,30 @@ class LiveLang_Admin {
                         <!-- Languages will be loaded via JavaScript -->
                     </tbody>
                 </table>
-            </div>
-            
-            <div id="livelang-tab-maintenance" class="livelang-tab-panel">
-                <h2><?php esc_html_e( 'Maintenance Actions', 'livelang' ); ?></h2>
-                <p><?php esc_html_e( 'You can clear all stored translations. This action cannot be undone.', 'livelang' ); ?></p>
-                <button class="button button-secondary" id="livelang-clear-translations-maintenance">
-                    <?php esc_html_e( 'Clear All Translations', 'livelang' ); ?>
-                </button>
-            </div>
+                <div class="livelang-usage-wrap" style="margin-top: 20px;background-color: #ededed;padding: 30px;">
+                    <h2><?php esc_html_e( 'Language Switcher Shortcode', 'livelang' ); ?></h2>
+                    <p><?php esc_html_e( 'Use the following shortcode to display a language switcher dropdown anywhere on your site:', 'livelang' ); ?></p>
+                    
+                    <div style="background: #f5f5f5; padding: 15px; border-left: 4px solid #2271b1; margin: 20px 0;">
+                        <code style="font-size: 16px; font-weight: bold;">[livelang_language_switcher]</code>
+                    </div>
 
-            <div id="livelang-tab-usage" class="livelang-tab-panel">
-                <h2><?php esc_html_e( 'Language Switcher Shortcode', 'livelang' ); ?></h2>
-                <p><?php esc_html_e( 'Use the following shortcode to display a language switcher dropdown anywhere on your site:', 'livelang' ); ?></p>
-                
-                <div style="background: #f5f5f5; padding: 15px; border-left: 4px solid #2271b1; margin: 20px 0;">
-                    <code style="font-size: 16px; font-weight: bold;">[livelang_language_switcher]</code>
+                    <h3><?php esc_html_e( 'How to Use', 'livelang' ); ?></h3>
+                    <ul style="line-height: 1.8;">
+                        <li><strong><?php esc_html_e( 'In Header, Footer, Posts or Pages:', 'livelang' ); ?></strong> <?php esc_html_e( 'Add a Shortcode block and paste the shortcode above.', 'livelang' ); ?></li>
+                        <li><strong><?php esc_html_e( 'In Widgets:', 'livelang' ); ?></strong> <?php esc_html_e( 'Add a Shortcode widget and paste the shortcode.', 'livelang' ); ?></li>
+                        <li><strong><?php esc_html_e( 'In Theme Files:', 'livelang' ); ?></strong> <?php esc_html_e( 'Use', 'livelang' ); ?> <code>&lt;?php echo do_shortcode('[livelang_language_switcher]'); ?&gt;</code></li>
+                    </ul>
+
+                    <h3><?php esc_html_e( 'What It Does', 'livelang' ); ?></h3>
+                    <p><?php esc_html_e( 'The language switcher displays a dropdown menu with all your configured languages. When a user selects a language, the page content will be translated to that language based on your saved translations.', 'livelang' ); ?></p>
+                    
+                    <p class="description">
+                        <?php esc_html_e( 'Note: Make sure you have configured your languages in the Languages tab and created translations using the frontend editor.', 'livelang' ); ?>
+                    </p>
                 </div>
-
-                <h3><?php esc_html_e( 'How to Use', 'livelang' ); ?></h3>
-                <ul style="line-height: 1.8;">
-                    <li><strong><?php esc_html_e( 'In Header, Footer, Posts or Pages:', 'livelang' ); ?></strong> <?php esc_html_e( 'Add a Shortcode block and paste the shortcode above.', 'livelang' ); ?></li>
-                    <li><strong><?php esc_html_e( 'In Widgets:', 'livelang' ); ?></strong> <?php esc_html_e( 'Add a Shortcode widget and paste the shortcode.', 'livelang' ); ?></li>
-                    <li><strong><?php esc_html_e( 'In Theme Files:', 'livelang' ); ?></strong> <?php esc_html_e( 'Use', 'livelang' ); ?> <code>&lt;?php echo do_shortcode('[livelang_language_switcher]'); ?&gt;</code></li>
-                </ul>
-
-                <h3><?php esc_html_e( 'What It Does', 'livelang' ); ?></h3>
-                <p><?php esc_html_e( 'The language switcher displays a dropdown menu with all your configured languages. When a user selects a language, the page content will be translated to that language based on your saved translations.', 'livelang' ); ?></p>
-                
-                <p class="description">
-                    <?php esc_html_e( 'Note: Make sure you have configured your languages in the Languages tab and created translations using the frontend editor.', 'livelang' ); ?>
-                </p>
             </div>
+    
 
             <div id="livelang-tab-help" class="livelang-tab-panel">
                 <h2><?php esc_html_e( 'How to use LiveLang', 'livelang' ); ?></h2>
@@ -486,13 +517,14 @@ class LiveLang_Admin {
                 LIVELANG_VERSION,
                 true
             );
-            wp_enqueue_style(
-                'livelang-admin',
-                LIVELANG_PLUGIN_URL . 'assets/css/livelang-admin.css',
-                array(),
-                LIVELANG_VERSION
-            );
         }
+
+        wp_enqueue_style(
+            'livelang-admin',
+            LIVELANG_PLUGIN_URL . 'assets/css/livelang-admin.css',
+            array(),
+            LIVELANG_VERSION
+        );
 
         // localize script if needed
         wp_localize_script(
@@ -502,6 +534,7 @@ class LiveLang_Admin {
                 'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
                 'nonce'     => wp_create_nonce( 'livelang_clear' ),
                 'langNonce' => wp_create_nonce( 'livelang_languages' ),
+                'isPro'     => ( function_exists( 'livelang_is_pro' ) && livelang_is_pro() ),
             )
         );
     }
@@ -511,21 +544,24 @@ class LiveLang_Admin {
      */
     public function get_languages() {
         $languages = get_option( 'livelang_languages', array() );
+        
+        // wordpress default language if not found
+        $locale = get_locale(); // e.g. en_US
+
+        // Get language code (first part)
+        $wp_default_lang_code = substr($locale, 0, 2);
+
+        
+        error_log( 'wp_default_lang: ' . $wp_default_lang_code );
         if ( empty( $languages ) ) {
             // Default languages
             $languages = array(
                 array(
-                    'code'      => 'en',
-                    'label'     => 'English',
+                    'code'      => $wp_default_lang_code,
+                    'label'     => $this->available_langs[$wp_default_lang_code] ?? $wp_default_lang_code,
                     'is_default' => 1,
                     'order'     => 0,
-                ),
-                array(
-                    'code'      => 'es',
-                    'label'     => 'Spanish',
-                    'is_default' => 0,
-                    'order'     => 1,
-                ),
+                )
             );
             update_option( 'livelang_languages', $languages );
         }
@@ -575,8 +611,8 @@ class LiveLang_Admin {
             }
         }
 
-        // Check 3-language limit
-        if ( count( $languages ) >= 3 ) {
+        // Check 3-language limit for Free version
+        if ( ! ( function_exists( 'livelang_is_pro' ) && livelang_is_pro() ) && count( $languages ) >= 3 ) {
             wp_send_json_error( array( 'message' => 'Maximum 3 languages allowed. Upgrade to Pro for unlimited languages.' ) );
         }
 
@@ -589,6 +625,9 @@ class LiveLang_Admin {
 
         $languages[] = $new_language;
         update_option( 'livelang_languages', $languages );
+
+        // Flush rewrite rules to ensure new language prefixes work immediately
+        flush_rewrite_rules( true );
 
         wp_send_json_success( array( 'language' => $new_language ) );
     }
@@ -622,6 +661,10 @@ class LiveLang_Admin {
         }
 
         update_option( 'livelang_languages', $updated );
+        
+        // Flush rewrite rules after deleting a language
+        flush_rewrite_rules( true );
+        
         wp_send_json_success();
     }
 

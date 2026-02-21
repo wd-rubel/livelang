@@ -65,6 +65,10 @@
   display: none;
 }
 
+.elementor-editor-active .livelang-bar {
+  display: none;
+}
+
 /* Main Translate button */
 #livelang-toggle .livelang-bar-main {
   border: none;
@@ -87,6 +91,11 @@
 }
 
 /* Language Switcher Dropdown */
+.livelang-current-language-flag {
+  width: 25px;
+  height: 15px;
+}
+
 .livelang-language-dropdown {
   position: relative;
   display: inline-block;
@@ -124,7 +133,7 @@
   top: calc(100% + 4px);
   left: 0;
   list-style: none;
-  padding: 8px 0;
+  padding: 0;
   margin: 0;
   background: #ffffff;
   border: 1px solid #e0e0e0;
@@ -142,13 +151,16 @@
   padding: 0;
 }
 .livelang-language-dropdown .livelang-language-list li a {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
   padding: 10px 16px;
   text-decoration: none;
   color: #333333;
   font-size: 14px;
   transition: all 0.2s ease;
   cursor: pointer;
+  width: 100%;
 }
 .livelang-language-dropdown .livelang-language-list li a:hover {
   background: #f5f5f6;
@@ -158,6 +170,10 @@
   background: #5a8aff;
   color: #ffffff;
   font-weight: 600;
+}
+.livelang-language-dropdown .livelang-language-list li a img {
+  width: 25px;
+  height: 15px;
 }
 .livelang-language-dropdown.open .livelang-language-list {
   opacity: 1;
@@ -202,53 +218,14 @@
 .livelang-language-dropdown.open .livelang-language-toggle .livelang-toggle-icon {
   transform: rotate(180deg);
 }
-.livelang-language-dropdown .livelang-language-list {
-  max-height: 600px;
-  overflow-y: auto;
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  list-style: none;
-  padding: 8px 0;
-  margin: 0;
-  background: #ffffff;
-  border: 1px solid #e0e0e0;
-  border-radius: 8px;
-  min-width: 180px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  opacity: 0;
-  visibility: hidden;
-  transform: translateY(-8px);
-  transition: opacity 0.25s ease, visibility 0.25s ease, transform 0.25s ease;
-  z-index: 10000;
-}
-.livelang-language-dropdown .livelang-language-list li {
-  margin: 0;
-  padding: 0;
-}
-.livelang-language-dropdown .livelang-language-list li a {
-  width: 100%;
-  display: block;
-  padding: 10px 16px;
-  text-decoration: none;
-  color: #333333;
-  font-size: 14px;
-  transition: all 0.2s ease;
-  cursor: pointer;
-}
-.livelang-language-dropdown .livelang-language-list li a:hover {
-  background: #f5f5f6;
-  color: #5a8aff;
-}
-.livelang-language-dropdown .livelang-language-list li a.active {
-  background: #5a8aff;
-  color: #ffffff;
-  font-weight: 600;
-}
 .livelang-language-dropdown.open .livelang-language-list {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+}
+
+.menu-item.livelang-language-item a {
+  justify-content: start;
 }
 
 /* Edit mode: disable links so user accidentally navigate না করে */
