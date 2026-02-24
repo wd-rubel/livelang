@@ -315,7 +315,8 @@ class LiveLang_Frontend {
 
             // Skip translation if text contains numbers and translate_numbers is disabled
             if ( ! $translate_numbers && $this->text_contains_numbers( $original ) ) {
-                $translated = $this->get_only_number_from_transation( $original ) . ' ' . $this->get_only_text_from_transation( $translated );
+                $translated = $this->get_only_text_from_transation( $translated );
+                $original = $this->get_only_text_from_transation( $original );
             }
 
             // Use a unique marker to prevent double-replacement (when original appears in translated)
