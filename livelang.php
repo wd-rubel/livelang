@@ -11,6 +11,48 @@
  * Domain Path: /languages
  */
 
+if ( ! function_exists( 'liv_fs' ) ) {
+    // Create a helper function for easy SDK access.
+    function liv_fs() {
+        global $liv_fs;
+
+        if ( ! isset( $liv_fs ) ) {
+            // Include Freemius SDK.
+            require_once dirname( __FILE__ ) . '/freemius/start.php';
+
+            $liv_fs = fs_dynamic_init( array(
+                'id'                  => '22482',
+                'slug'                => 'livelang',
+                'type'                => 'plugin',
+                'public_key'          => 'pk_c35f7a2cd995c48badcf794eb6991',
+                'is_premium'          => false,
+                'is_premium_only'     => false,
+                'has_addons'          => false,
+                'has_paid_plans'      => true,
+                'is_org_compliant'    => true,
+                // Automatically removed in the free version. If you're not using the
+                // auto-generated free version, delete this line before uploading to wp.org.
+                'wp_org_gatekeeper'   => 'OA7#BoRiBNqdf52FvzEf!!074aRLPs8fspif$7K1#4u4Csys1fQlCecVcUTOs2mcpeVHi#C2j9d09fOTvbC0HloPT7fFee5WdS3G',
+                // 'trial'               => array(
+                //     'days'               => 7,
+                //     'is_require_payment' => true,
+                // ),
+                'menu'                => array(
+                    'slug'           => 'livelang',
+                    'support'        => false,
+                ),
+            ) );
+        }
+
+        return $liv_fs;
+    }
+
+    // Init Freemius.
+    liv_fs();
+    // Signal that SDK was initiated.
+    do_action( 'liv_fs_loaded' );
+}
+
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }

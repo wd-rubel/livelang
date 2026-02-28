@@ -8,6 +8,9 @@ class LiveLang_Frontend {
     /** @var LiveLang_DB */
     protected $db;
     protected $buffering = false;
+    
+    // Global recursion prevention flag
+    private static $in_translation_hook = false;
 
     public function __construct( $db ) {
         $this->db = $db;
@@ -36,6 +39,10 @@ class LiveLang_Frontend {
         add_filter( 'wp_get_nav_menu_items', array( $this, 'expand_language_menu' ), 20 );
         add_filter( 'walker_nav_menu_start_el', array( $this, 'livelang_menu_item_output' ), 15, 4 );
         add_action( 'wp_footer', array( $this, 'render_editor_bar' ) );
+        
+        // Register gettext hooks at wp action (when query is ready)
+        //add_action('wp', [$this, 'init_gettext_hooks']);
+
     }
 
     function add_rewrite_tag() {
@@ -248,6 +255,10 @@ class LiveLang_Frontend {
 
     public function start_buffer() {
         $this->livelang_detect_language();
+        
+        // Set locale for the detected language
+        $this->set_current_locale();
+        
         // Start and close inside SAME function = WP.org rules OK
         ob_start();
 
@@ -269,82 +280,265 @@ class LiveLang_Frontend {
         }, 0);
     }
 
+    /**
+     * Safely add gettext hooks only on frontend after WP is ready
+     * These hooks work WITH the buffer method to catch dynamic translations
+     */
+    public function init_gettext_hooks() {
+        // Don't add hooks if we're in admin or REST API or AJAX
+        if ( is_admin() || defined('REST_REQUEST') || defined('DOING_AJAX') ) {
+            return;
+        }
+
+        // To avoid recursion and 502 errors we DO NOT register gettext hooks here.
+        // The plugin uses the output buffer (`buffer_callback`) for frontend
+        // translations which is safer and avoids infinite recursion caused by
+        // running gettext filters during early WP bootstrap. If you need to
+        // re-enable gettext interception, do so carefully and behind a feature
+        // flag after ensuring `getCurrentLanguage()` and slug helpers cannot
+        // trigger gettext themselves.
+        return;
+    }
+
+    /**
+     * Map language code to WordPress locale
+     * e.g., 'bn' => 'bn_BD', 'es' => 'es_ES'
+     */
+    protected function get_locale_for_language($lang) {
+        $locale_map = apply_filters('livelang_locale_map', array(
+            'af' => 'af',
+            'sq' => 'sq_AL',
+            'am' => 'am_ET',
+            'ar' => 'ar',
+            'hy' => 'hy',
+            'az' => 'az',
+            'eu' => 'eu_ES',
+            'be' => 'be_BY',
+            'bn' => 'bn_BD',
+            'bs' => 'bs_BA',
+            'bg' => 'bg_BG',
+            'ca' => 'ca_ES',
+            // Prefer Traditional Chinese by default when admin shows zh_TW
+            'zh' => 'zh_TW',
+            // Assamese (present in WP admin language list)
+            'as' => 'as',
+            'hr' => 'hr_HR',
+            'cs' => 'cs_CZ',
+            'da' => 'da_DK',
+            'nl' => 'nl_NL',
+            'en' => 'en_US',
+            'et' => 'et_EE',
+            'fi' => 'fi_FI',
+            'fr' => 'fr_FR',
+            'gl' => 'gl_ES',
+            'ka' => 'ka_GE',
+            'de' => 'de_DE',
+            'el' => 'el_GR',
+            'gu' => 'gu_IN',
+            'he' => 'he_IL',
+            'hi' => 'hi_IN',
+            'hu' => 'hu_HU',
+            'is' => 'is_IS',
+            'id' => 'id_ID',
+            'it' => 'it_IT',
+            'ja' => 'ja',
+            'kn' => 'kn_IN',
+            'kk' => 'kk_KZ',
+            'km' => 'km',
+            'ko' => 'ko_KR',
+            'lo' => 'lo',
+            'lv' => 'lv_LV',
+            'lt' => 'lt_LT',
+            'mk' => 'mk_MK',
+            'ms' => 'ms_MY',
+            'ml' => 'ml_IN',
+            'mt' => 'mt_MT',
+            'mr' => 'mr_IN',
+            'mn' => 'mn',
+            'ne' => 'ne_NP',
+            'nb' => 'nb_NO',
+            'nn' => 'nn_NO',
+            'fa' => 'fa_IR',
+            'pl' => 'pl_PL',
+            'pt' => 'pt_PT',
+            'pa' => 'pa_IN',
+            'ro' => 'ro_RO',
+            'ru' => 'ru_RU',
+            'sr' => 'sr_RS',
+            'si' => 'si_LK',
+            'sk' => 'sk_SK',
+            'sl' => 'sl_SI',
+            'es' => 'es_ES',
+            'sw' => 'sw_KE',
+            'sv' => 'sv_SE',
+            'ta' => 'ta_IN',
+            'te' => 'te_IN',
+            'th' => 'th',
+            'tr' => 'tr_TR',
+            'uk' => 'uk_UA',
+            'ur' => 'ur_PK',
+            'uz' => 'uz_UZ',
+            'vi' => 'vi_VN',
+            'cy' => 'cy_GB',
+        ));
+
+        return isset($locale_map[$lang]) ? $locale_map[$lang] : $lang;
+    }
+
+    /**
+     * Set WordPress locale to current language
+     * This enables WordPress to load correct .mo files for translation
+     */
+    protected function set_current_locale() {
+        // Get language safely (doesn't rely on constant)
+        $language = $this->getCurrentLanguage();
+        if (empty($language) || $language === 'en') {
+            return;
+        }
+
+        $locale = $this->get_locale_for_language($language);
+        
+        // Set the locale globally
+        if (function_exists('switch_to_locale')) {
+            // WordPress 4.7+
+            switch_to_locale($locale);
+        } else {
+            // Fallback for older WordPress
+            global $wp_locale;
+            $GLOBALS['wp_locale'] = new WP_Locale();
+            if (function_exists('load_textdomain')) {
+                // This ensures mo files are loaded for the locale
+                load_textdomain('default', WP_LANG_DIR . '/' . $locale . '.mo');
+            }
+        }
+
+        // Also set PHP locale for any PHP translation functions
+        setlocale(LC_ALL, $locale);
+    }
+
+
     public function buffer_callback( $content ) {
 
         $slug     = $this->get_current_slug();
         $language = $this->getCurrentLanguage();
 
-        // Unique cache key per page + language
+        $map = $this->get_translations_map($slug, $language);
+
+        if (empty($map)) {
+            return $content;
+        }
+
+        // We support number-normalized keys in the map. If a key contains the
+        // special placeholder "::NUM::" we'll treat it as a regex pattern and
+        // replace matched numbers into the translated string where
+        // the placeholder "{NUM}" exists.
+        foreach ($map as $original => $translated) {
+            if (empty($original) || empty($translated) || !is_string($original) || !is_string($translated)) {
+                continue;
+            }
+
+            // Numeric-normalized key handling
+            if (strpos($original, '::NUM::') !== false) {
+                // Build regex pattern: escape non-placeholder parts and replace
+                // each ::NUM:: with a capture group for digits
+                $parts = explode('::NUM::', $original);
+                $regex_parts = array_map(function($p) { return preg_quote($p, '/'); }, $parts);
+                $pattern = '/'.implode('([0-9]+)', $regex_parts).'/u';
+
+                // Replace using callback so we can inject captured numbers
+                $content = preg_replace_callback($pattern, function($matches) use ($translated) {
+                    // $matches[0] is full match; subsequent entries are captures
+                    $repl = $translated;
+                    // Replace each {NUM} occurrence with the corresponding capture
+                    for ($i = 1; $i < count($matches); $i++) {
+                        $repl = preg_replace('/\{NUM\}/', $matches[$i], $repl, 1);
+                    }
+                    return $repl;
+                }, $content);
+            } else {
+                // Simple direct replace for exact keys
+                $content = str_replace($original, $translated, $content);
+            }
+        }
+
+        return $content;
+    }
+
+    public function get_translations_map($slug, $language = null) {
+        if( !$language ) {
+            $language = $this->getCurrentLanguage();
+        }
+        if( !$slug ) {
+            $slug = $this->get_current_slug();
+        }
+
+        $settings = get_option( 'livelang_settings', array() );
+        $translate_numbers = ! empty( $settings['translate_numbers'] ) ? true : false;
+
         $cache_key   = "livelang_translations_{$language}_{$slug}";
         $cache_group = 'livelang';
 
-        // Try Object Cache first
-        $translations = wp_cache_get( $cache_key, $cache_group );
+        $translations = wp_cache_get($cache_key, $cache_group);
 
-        if ( false === $translations ) {
+        if (false === $translations) {
+            $translations = $this->db->get_translations_for_slug($slug, $language);
 
-            // Cache miss → load from DB
-            $translations = $this->db->get_translations_for_slug( $slug, $language );
-
-            // Cache for 12 hours (filterable)
             wp_cache_set(
                 $cache_key,
                 $translations,
                 $cache_group,
-                apply_filters( 'livelang_cache_ttl', 12 * HOUR_IN_SECONDS )
+                apply_filters('livelang_cache_ttl', 12 * HOUR_IN_SECONDS)
             );
         }
 
-        if ( empty( $translations ) ) {
-            return $content;
-        }
+        // convert to map with safety checks
+        $map = array();
+        if (!empty($translations) && is_array($translations)) {
+            foreach ($translations as $row) {
+                // Type check: ensure $row is an object with the required properties
+                if (!is_object($row) || empty($row->original_text) || empty($row->translated_text)) {
+                    continue;
+                }
+                
+                // Type check: ensure properties are strings
+                $original = trim((string) $row->original_text);
+                $translated = trim((string) $row->translated_text);
 
-        // Check if we should skip translating text with numbers
-        $settings = get_option( 'livelang_settings', array() );
-        $translate_numbers = ! empty( $settings['translate_numbers'] ) ? true : false;
+                // If numbers should be ignored for matching, create a
+                // normalized map key where all digit runs are replaced by
+                // the placeholder ::NUM::. Store the translated text with a
+                // {NUM} placeholder so we can inject the actual number when
+                // performing replacements.
+                if ( ! $translate_numbers && $this->text_contains_numbers( $original ) ) {
+                    // normalized key replaces digit runs with ::NUM::
+                    $normalized_key = preg_replace('/[0-9]+/', '::NUM::', $original);
 
-        // Replace loop (optimized order)
-        foreach ( $translations as $row ) {
+                    // translated placeholder: replace any ascii digits in the
+                    // translated text with {NUM} so we can inject the matched
+                    // number from the live content. (This is a simple and
+                    // practical approach; localized digits might require
+                    // additional handling.)
+                    $translated_with_placeholder = preg_replace('/[0-9]+/', '{NUM}', $translated);
 
-            if ( empty( $row->original_text ) ) {
-                continue;
+                    // Save both exact and normalized entries. Normalized entry
+                    // should not overwrite existing exact translations.
+                    if (!isset($map[$normalized_key])) {
+                        $map[$normalized_key] = $translated_with_placeholder;
+                    }
+                    // Also keep exact mapping so exact matches still work
+                    $map[$original] = $translated;
+                    continue;
+                }
+                
+                if (empty($original) || empty($translated)) {
+                    continue;
+                }
+                
+                $map[$original] = $translated;
             }
-
-            $original   = $row->original_text;
-            $translated = $row->translated_text;
-
-            // Skip translation if text contains numbers and translate_numbers is disabled
-            if ( ! $translate_numbers && $this->text_contains_numbers( $original ) ) {
-                $translated = $this->get_only_text_from_transation( $translated );
-                $original = $this->get_only_text_from_transation( $original );
-            }
-
-            // Use a unique marker to prevent double-replacement (when original appears in translated)
-            $marker = '___LIVELANG_' . md5( $original . $translated ) . '___';
-
-            // Replace raw version with marker
-            $content = str_replace(
-                $original,
-                $marker,
-                $content
-            );
-
-            // Replace escaped version with marker
-            $content = str_replace(
-                esc_html( $original ),
-                $marker,
-                $content
-            );
-
-            // Replace marker with translated
-            $content = str_replace(
-                $marker,
-                $translated,
-                $content
-            );
         }
 
-        return $content;
+        return $map;
     }
 
     /**
@@ -355,6 +549,264 @@ class LiveLang_Frontend {
      */
     protected function text_contains_numbers( $text ) {
         return (bool) preg_match( '/\d/', $text );
+    }
+
+
+    /**
+     * Build translation map for a specific slug and language with proper validation
+     * Used by gettext hooks for efficient lookups
+     */
+    protected function get_single_language_map($slug, $language) {
+        if (empty($slug) || empty($language)) {
+            return array();
+        }
+
+        $cache_key = "livelang_translations_{$language}_{$slug}";
+        $cache_group = 'livelang';
+        
+        // Try cache first
+        $map = wp_cache_get($cache_key, $cache_group);
+        
+        if ($map !== false) {
+            return is_array($map) ? $map : array();
+        }
+
+        // Build map from database with comprehensive validation
+        $map = array();
+        $translations = $this->db->get_translations_for_slug($slug, $language);
+        
+        if (!empty($translations) && is_array($translations)) {
+            foreach ($translations as $row) {
+                // Comprehensive type validation
+                if (!is_object($row)) {
+                    continue;
+                }
+                
+                if (empty($row->original_text) || empty($row->translated_text)) {
+                    continue;
+                }
+                
+                // Cast and trim both values
+                $original = trim((string) $row->original_text);
+                $translated = trim((string) $row->translated_text);
+                
+                // Skip if either is empty after trimming
+                if (empty($original) || empty($translated)) {
+                    continue;
+                }
+                
+                $map[$original] = $translated;
+            }
+        }
+        
+        // Cache the map (even if empty)
+        wp_cache_set(
+            $cache_key,
+            $map,
+            $cache_group,
+            apply_filters('livelang_cache_ttl', 12 * HOUR_IN_SECONDS)
+        );
+
+        return $map;
+    }
+
+    public function translate_gettext($translated, $text, $domain) {
+        // Prevent recursion FIRST (before anything else)
+        if (self::$in_translation_hook) {
+            return $translated;
+        }
+
+        // Early exits prevent unnecessary processing
+        if (empty($text)) {
+            return $translated;
+        }
+
+        if (is_admin() || defined('REST_REQUEST') || defined('DOING_AJAX')) {
+            return $translated;
+        }
+
+        // Set flag immediately
+        self::$in_translation_hook = true;
+        
+        try {
+            // Get language
+            $language = $this->getCurrentLanguage();
+            if (empty($language) || $language === 'en') {
+                return $translated;
+            }
+
+            // Get slug
+            $slug = $this->get_current_slug();
+            if (empty($slug)) {
+                $slug = 'home';
+            }
+
+            // Query database directly (simple one-liner)
+            $translation = $this->db->get_translation_by_original_and_slug($text, $slug, $language);
+            
+            if ($translation && !empty($translation->translated_text)) {
+                return $translation->translated_text;
+            }
+        } finally {
+            self::$in_translation_hook = false;
+        }
+
+        return $translated;
+    }
+
+    public function translate_ngettext($translated, $single, $plural, $number, $domain) {
+        // Prevent recursion FIRST
+        if (self::$in_translation_hook) {
+            return $translated;
+        }
+
+        // Early exits
+        if (empty($single) && empty($plural)) {
+            return $translated;
+        }
+
+        if (is_admin() || defined('REST_REQUEST') || defined('DOING_AJAX')) {
+            return $translated;
+        }
+
+        // Set flag immediately
+        self::$in_translation_hook = true;
+        
+        try {
+            // Get language
+            $language = $this->getCurrentLanguage();
+            if (empty($language) || $language === 'en') {
+                return $translated;
+            }
+
+            // Determine which text to use
+            $check_text = ($number == 1) ? $single : $plural;
+            if (empty($check_text)) {
+                return $translated;
+            }
+
+            // Get slug
+            $slug = $this->get_current_slug();
+            if (empty($slug)) {
+                $slug = 'home';
+            }
+
+            // Query database
+            $translation = $this->db->get_translation_by_original_and_slug($check_text, $slug, $language);
+            
+            if ($translation && !empty($translation->translated_text)) {
+                return $translation->translated_text;
+            }
+        } finally {
+            self::$in_translation_hook = false;
+        }
+
+        return $translated;
+    }
+
+    public function translate_gettext_context($translated, $text, $context, $domain) {
+        // Prevent recursion FIRST
+        if (self::$in_translation_hook) {
+            return $translated;
+        }
+
+        // Early exits
+        if (empty($text) || empty($context)) {
+            return $translated;
+        }
+
+        if (is_admin() || defined('REST_REQUEST') || defined('DOING_AJAX')) {
+            return $translated;
+        }
+
+        // Set flag immediately
+        self::$in_translation_hook = true;
+        
+        try {
+            // Get language
+            $language = $this->getCurrentLanguage();
+            if (empty($language) || $language === 'en') {
+                return $translated;
+            }
+
+            // Get slug
+            $slug = $this->get_current_slug();
+            if (empty($slug)) {
+                $slug = 'home';
+            }
+
+            // Build context key
+            $lookup_key = $context . '|' . $text;
+
+            // Query database
+            $translation = $this->db->get_translation_by_original_and_slug($lookup_key, $slug, $language);
+            
+            if ($translation && !empty($translation->translated_text)) {
+                return $translation->translated_text;
+            }
+        } finally {
+            self::$in_translation_hook = false;
+        }
+
+        return $translated;
+    }
+
+    /**
+     * Debug helper - Check if translations exist in database for current page/language
+     * Add to a temporary admin page to test
+     */
+    public function debug_translations() {
+        if (!current_user_can('manage_options')) {
+            return 'Access denied';
+        }
+
+        $slug = $this->get_current_slug();
+        $language = $this->getCurrentLanguage();
+        
+        $output = "DEBUG INFO:<br>";
+        $output .= "Current Slug: " . esc_html($slug) . "<br>";
+        $output .= "Current Language: " . esc_html($language) . "<br>";
+        
+        if (defined('LIVELANG_CURRENT_LANG')) {
+            $output .= "Constant LIVELANG_CURRENT_LANG: " . esc_html(LIVELANG_CURRENT_LANG) . "<br>";
+        } else {
+            $output .= "Constant LIVELANG_CURRENT_LANG: NOT DEFINED<br>";
+        }
+
+        $translations = $this->db->get_translations_for_slug($slug, $language);
+        $output .= "<br><strong>Translations found in database: " . (is_array($translations) ? count($translations) : 0) . "</strong><br>";
+
+        if (!empty($translations)) {
+            $output .= "<br><strong>Sample translations:</strong><br>";
+            foreach (array_slice($translations, 0, 10) as $row) {
+                $output .= "<br>Row Object: " . print_r($row, true);
+                $output .= "Original: '" . esc_html((string)$row->original_text) . "'<br>";
+                $output .= "Translated: '" . esc_html((string)$row->translated_text) . "'<br>";
+                $output .= "Slug: '" . esc_html((string)$row->slug) . "'<br>";
+                $output .= "Language: '" . esc_html((string)$row->language) . "'<br>";
+                $output .= "---<br>";
+            }
+        } else {
+            $output .= "<strong>❌ No translations found in database!</strong><br>";
+        }
+
+        $output .= "<br><strong>Map Data:</strong><br>";
+        $map = $this->get_translations_map($slug, $language);
+        $output .= "Map Count: " . count($map) . "<br>";
+        if (!empty($map)) {
+            $output .= "Sample Map Entries (first 5):<br>";
+            foreach (array_slice($map, 0, 5, true) as $original => $translated) {
+                $output .= "'" . esc_html((string)$original) . "' => '" . esc_html((string)$translated) . "'<br>";
+            }
+        }
+
+        $output .= "<br><strong>Cache Status:</strong><br>";
+        $cache_key = "livelang_translations_{$language}_{$slug}";
+        $cached = wp_cache_get($cache_key, 'livelang');
+        $output .= "Cache Key: " . esc_html($cache_key) . "<br>";
+        $output .= "Cached Data: " . ($cached === false ? "NOT CACHED" : "CACHED (" . count($cached) . " items)") . "<br>";
+
+        return "<pre>" . $output . "</pre>";
     }
 
     protected function get_only_text_from_transation ($text) {
@@ -368,26 +820,29 @@ class LiveLang_Frontend {
 
     protected function get_current_slug() {
         global $wp;
-        if ( ! isset( $wp ) ) {
-            return '';
+        if (!isset($wp) || !isset($wp->request)) {
+            return 'home';
         }
-        $slug = trim( add_query_arg( array(), $wp->request ), '/' );
-        $lang = LIVELANG_CURRENT_LANG;
-        // add lang prefix if exists
-        if ( $lang ) {
-            $prefix = $lang . '/';
-            if ( strpos( $slug, $prefix ) === 0 ) {
-                $slug = substr( $slug, strlen( $prefix ) );
-            } elseif ( $slug === $lang ) {
+        
+        // Get raw slug without calling functions that might trigger hooks
+        $slug = trim($wp->request, '/');
+        
+        if (empty($slug)) {
+            return 'home';
+        }
+        
+        // Remove language prefix if present (simple string operation, no function calls)
+        $language = $this->getCurrentLanguage();
+        if (!empty($language) && $language !== 'en') {
+            $prefix = $language . '/';
+            if (strpos($slug, $prefix) === 0) {
+                $slug = substr($slug, strlen($prefix));
+            } elseif ($slug === $language) {
                 $slug = '';
             }
         }
         
-        // If slug is empty, we're on the homepage
-        if ( $slug === '' ) {
-            $slug = 'home';
-        }
-        return $slug;
+        return empty($slug) ? 'home' : $slug;
     }
 
     protected function get_homepage_slug() {
@@ -485,7 +940,8 @@ class LiveLang_Frontend {
         }
 
         $slug         = $this->get_current_slug();
-        $translations = $this->db->get_translations_for_slug( $slug );
+        $language     = $this->getCurrentLanguage();
+        $translations = $this->db->get_translations_for_slug( $slug, $language );
 
         $dict = array();
         if ( $translations ) {
@@ -839,7 +1295,7 @@ class LiveLang_Frontend {
 
         // Skip if default language or matching error/empty
         if ( ! $lang || $lang === 'en' || $lang === $this->get_default_language() ) {
-            return $url;
+            //return $url;
         }
 
         // Basic check to exclude assets
