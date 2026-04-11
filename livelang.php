@@ -10,7 +10,7 @@
  * Text Domain: livelang
  * Domain Path: /languages
  */
-
+/* Set Freemius into development mode */
 if ( ! function_exists( 'liv_fs' ) ) {
     // Create a helper function for easy SDK access.
     function liv_fs() {
@@ -23,23 +23,27 @@ if ( ! function_exists( 'liv_fs' ) ) {
             $liv_fs = fs_dynamic_init( array(
                 'id'                  => '22482',
                 'slug'                => 'livelang',
+                'premium_slug'        => 'livelang-pro',
                 'type'                => 'plugin',
                 'public_key'          => 'pk_c35f7a2cd995c48badcf794eb6991',
+                'secret_key'          => 'sk_k<z!:qG2MB2<n4pVIM$6Xo=nGB?BX',
                 'is_premium'          => false,
                 'is_premium_only'     => false,
                 'has_addons'          => false,
                 'has_paid_plans'      => true,
-                'is_org_compliant'    => true,
-                // Automatically removed in the free version. If you're not using the
-                // auto-generated free version, delete this line before uploading to wp.org.
-                'wp_org_gatekeeper'   => 'OA7#BoRiBNqdf52FvzEf!!074aRLPs8fspif$7K1#4u4Csys1fQlCecVcUTOs2mcpeVHi#C2j9d09fOTvbC0HloPT7fFee5WdS3G',
-                // 'trial'               => array(
-                //     'days'               => 7,
-                //     'is_require_payment' => true,
-                // ),
+                'trial'               => array(
+                    'days'               => 7,
+                    'is_require_payment' => false,
+                ),
                 'menu'                => array(
                     'slug'           => 'livelang',
                     'support'        => false,
+                    'affiliation' => false,
+                    'network'     => true,
+                ),
+                'parallel_activation' => array(
+                    'enabled' => true,
+                    'premium_version_basename' => 'livelang-pro/livelang-pro.php',
                 ),
             ) );
         }

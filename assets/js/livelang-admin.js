@@ -109,12 +109,13 @@ document.addEventListener("DOMContentLoaded", function () {
   function showUpgradeNotice() {
     var container = document.getElementById("livelang-tab-languages");
     if (!container) return;
+    var upgradeUrl = LiveLangAdminSettings.planUpgradeUrl;
     var notice = document.createElement("div");
     notice.id = "livelang-upgrade-notice";
     notice.className = "notice notice-warning";
     notice.style.marginBottom = "12px";
     notice.innerHTML =
-      "<p><strong>Maximum 3 languages reached.</strong> <a href='https://livelang.pro/pricing' target='_blank' style='color: #0073aa; text-decoration: none;'>Upgrade</a> to the Pro version for unlimited languages.</p>";
+      "<p><strong>Maximum 3 languages reached.</strong> <a href='" + upgradeUrl + "' target='_blank' style='color: #0073aa; text-decoration: none;'>Upgrade</a> to the Pro version for unlimited languages.</p>";
     container.insertBefore(notice, container.firstChild);
   }
 
@@ -224,7 +225,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function addLanguage() {
     // If already at or above limit, show upgrade notice and do not proceed
-    if (!LiveLangAdminSettings.isPro && languagesCount >= 3) {
+    if (LiveLangAdminSettings.isPro === "" && languagesCount >= 3) {
       showUpgradeNotice();
       return;
     }
@@ -234,7 +235,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var code = codeInput.value.trim();
     // Get label from the option text, stripping the (code) part
     var selectedOption = codeInput.options[codeInput.selectedIndex];
-    var label = selectedOption ? selectedOption.text.split(' (')[0] : '';
+    var label = selectedOption ? selectedOption.text.split(" (")[0] : "";
 
     if (!code || !label) {
       alert("Please select a language");

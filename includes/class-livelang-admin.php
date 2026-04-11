@@ -527,6 +527,7 @@ class LiveLang_Admin {
         );
 
         // localize script if needed
+        $plan_upgrade_url = admin_url('admin.php?page=livelang-pricing');
         wp_localize_script(
             'livelang-admin',
             'LiveLangAdminSettings',
@@ -534,7 +535,8 @@ class LiveLang_Admin {
                 'ajaxUrl'   => admin_url( 'admin-ajax.php' ),
                 'nonce'     => wp_create_nonce( 'livelang_clear' ),
                 'langNonce' => wp_create_nonce( 'livelang_languages' ),
-                'isPro'     => ( function_exists( 'livelang_is_pro' ) && livelang_is_pro() ),
+                'isPro'     => ( class_exists( 'LiveLang_Pro' ) && liv_fs()->is__premium_only() ),
+                'planUpgradeUrl'    => $plan_upgrade_url, 
             )
         );
     }
@@ -612,7 +614,7 @@ class LiveLang_Admin {
         }
 
         // Check 3-language limit for Free version
-        if ( ! ( function_exists( 'livelang_is_pro' ) && livelang_is_pro() ) && count( $languages ) >= 3 ) {
+        if ( ! ( class_exists( 'LiveLang_Pro' ) && liv_fs()->is__premium_only() ) && count( $languages ) >= 3 ) {
             wp_send_json_error( array( 'message' => 'Maximum 3 languages allowed. Upgrade to Pro for unlimited languages.' ) );
         }
 

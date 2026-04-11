@@ -62,7 +62,7 @@
   gap: 4px;
   color: #6a6a6a;
   font-weight: 600;
-  display: none;
+  padding: 0 10px;
 }
 
 .elementor-editor-active .livelang-bar {

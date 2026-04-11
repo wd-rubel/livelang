@@ -26,7 +26,16 @@ class LiveLang_Frontend {
         add_filter( 'redirect_canonical', array( $this, 'disable_canonical_redirect_for_lang' ), 10, 2 );
         add_action( 'init', array( $this, 'add_rewrite_tag' ) );
         add_action( 'init', array( $this, 'add_permastruct' ) );
+
+        // Early locale filters
+        add_filter( 'locale', array( $this, 'filter_wp_locale' ), 20 );
+        add_filter( 'determine_locale', array( $this, 'filter_wp_locale' ), 20 );
+
         add_action( 'template_redirect', array( $this, 'start_buffer' ), 1 );
+        // Re-apply locale at the wp hook to ensure it persists through theme/plugin initialization
+        add_action( 'wp', array( $this, 'ensure_locale_persists' ), 1 );
+        // Also re-apply just before rendering to ensure it hasn't been reset
+        add_action( 'wp_head', array( $this, 'ensure_locale_persists' ), 1 );
 
         // Filters to persist language in URLs
         add_filter( 'home_url', array( $this, 'filter_url' ), 10, 1 );
@@ -91,6 +100,70 @@ class LiveLang_Frontend {
     }
 
     function handle_language_request( $query_vars ) {
+        // Fallback: Manually extract lang and slug from URI if rewrite rules failed to catch it
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
+        $path = parse_url($request_uri, PHP_URL_PATH);
+        
+        $home_path = parse_url(get_option('home'), PHP_URL_PATH);
+        if ($home_path && $home_path !== '/') {
+            $path = preg_replace('#^' . preg_quote(rtrim($home_path, '/'), '#') . '#', '', $path);
+        }
+        
+        // Ensure path always has a leading slash for the regex match
+        if (substr($path, 0, 1) !== '/') {
+            $path = '/' . $path;
+        }
+
+        if (preg_match('#^/([a-z]{2})(?:/(.*))?$#', $path, $matches)) {
+            $lang_from_url = $matches[1];
+            $rest_of_path = isset($matches[2]) ? rtrim($matches[2], '/') : '';
+
+            $languages = $this->get_languages_for_frontend();
+            $valid_codes = array();
+            if (is_array($languages)) {
+                foreach ($languages as $l) {
+                    if (isset($l['code'])) {
+                        $valid_codes[] = $l['code'];
+                    }
+                }
+            }
+
+            if (in_array($lang_from_url, $valid_codes)) {
+                $query_vars['lang'] = $lang_from_url;
+
+                if (empty($rest_of_path)) {
+                    // Language Homepage
+                    unset($query_vars['pagename']);
+                    unset($query_vars['name']);
+                    unset($query_vars['error']);
+                    unset($query_vars['attachment']);
+                    unset($query_vars['page']);
+
+                    if ( 'page' === get_option( 'show_on_front' ) ) {
+                        $page_id = get_option( 'page_on_front' );
+                        if ( $page_id ) {
+                            $query_vars['page_id'] = $page_id;
+                        }
+                    }
+                } else {
+                    // Update pagename if it was misinterpreted as including the language prefix
+                    if (isset($query_vars['pagename']) && strpos($query_vars['pagename'], $lang_from_url) === 0) {
+                         $query_vars['pagename'] = $rest_of_path;
+                         $query_vars['name'] = $rest_of_path;
+                         unset($query_vars['error']);
+                    } else if (isset($query_vars['name']) && strpos($query_vars['name'], $lang_from_url) === 0) {
+                         $query_vars['name'] = $rest_of_path;
+                         unset($query_vars['error']);
+                    }
+                    
+                    // Set pagename if we don't have it (404 condition without flush)
+                    if (!isset($query_vars['pagename']) && !isset($query_vars['p']) && !isset($query_vars['page_id']) && !isset($query_vars['post_type'])) {
+                        $query_vars['pagename'] = $rest_of_path;
+                    }
+                }
+            }
+        }
+
         // Handle Lang-only request (Homepage for a language)
         // If we have lang but no page/post identifiers, it's the language root
         if ( isset( $query_vars['lang'] ) && ! isset( $query_vars['pagename'] ) && ! isset( $query_vars['name'] ) && ! isset( $query_vars['p'] ) && ! isset( $query_vars['page_id'] ) ) {
@@ -142,13 +215,21 @@ class LiveLang_Frontend {
         return $query_vars;
     }
 
-    /**
-     * Disable canonical redirect for URLs with language prefix
-     * Prevents WordPress from redirecting /es/cart/ to /cart/
-     */
     function disable_canonical_redirect_for_lang( $redirect_url, $requested_url ) {
         // If the requested URL has a language prefix, don't redirect
-        if ( preg_match( '#^https?://[^/]+/[a-z]{2}/#', $requested_url ) ) {
+        $request_path = parse_url($requested_url, PHP_URL_PATH);
+        $home_path = parse_url(get_option('home'), PHP_URL_PATH);
+        
+        if ($home_path && $home_path !== '/') {
+            $request_path = preg_replace('#^' . preg_quote(rtrim($home_path, '/'), '#') . '#', '', $request_path);
+        }
+
+        // Ensure path starts with slash for match
+        if ($request_path && substr($request_path, 0, 1) !== '/') {
+            $request_path = '/' . $request_path;
+        }
+
+        if ( preg_match( '#^/[a-z]{2}(/|$)#', $request_path ) ) {
             return false;
         }
         return $redirect_url;
@@ -162,6 +243,9 @@ class LiveLang_Frontend {
         if ( $lang ) {
             if ( ! defined( 'LIVELANG_CURRENT_LANG' ) ) {
                 define( 'LIVELANG_CURRENT_LANG', $lang );
+                if ( ! headers_sent() ) {
+                    setcookie('livelang_lang', $lang, time() + MONTH_IN_SECONDS, COOKIEPATH, COOKIE_DOMAIN);
+                }
             }
         } else {
             // Check cookie as fallback
@@ -180,7 +264,7 @@ class LiveLang_Frontend {
     }
    
     public function register_rest_routes() {
-        register_rest_route( 'livelang/v1', '/save', array(
+        register_rest_route( 'livelang-api/v1', '/save', array(
             'methods'             => 'POST',
             'callback'            => array( $this, 'rest_save_translation' ),
             'permission_callback' => array( $this, 'rest_permission_check' ),
@@ -300,6 +384,42 @@ class LiveLang_Frontend {
         return;
     }
 
+    public function filter_wp_locale( $locale ) {
+        if ( is_admin() || defined('REST_REQUEST') || defined('DOING_AJAX') ) {
+            return $locale;
+        }
+
+        if ( defined( 'LIVELANG_CURRENT_LANG' ) && LIVELANG_CURRENT_LANG ) {
+            $lang = LIVELANG_CURRENT_LANG;
+        } else {
+            $path = isset( $_SERVER['REQUEST_URI'] ) ? parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ) : '';
+            $home_path = parse_url( get_option('home'), PHP_URL_PATH );
+            
+            if ( $home_path && $home_path !== '/' ) {
+                if ( strpos( $path, $home_path ) === 0 ) {
+                    $path = substr( $path, strlen( $home_path ) );
+                }
+            }
+            if ( ! $path || substr( $path, 0, 1 ) !== '/' ) {
+                $path = '/' . $path;
+            }
+
+            if ( preg_match( '#^/([a-z]{2})(?:/|$)#', $path, $matches ) ) {
+                $lang = $matches[1];
+            } else if ( isset( $_COOKIE['livelang_lang'] ) ) {
+                $lang = sanitize_key( $_COOKIE['livelang_lang'] );
+            } else {
+                return $locale;
+            }
+        }
+
+        if ( empty( $lang ) || $lang === 'en' ) {
+            return $locale;
+        }
+
+        return $this->get_locale_for_language( $lang );
+    }
+
     /**
      * Map language code to WordPress locale
      * e.g., 'bn' => 'bn_BD', 'es' => 'es_ES'
@@ -398,24 +518,116 @@ class LiveLang_Frontend {
 
         $locale = $this->get_locale_for_language($language);
         
-        // Set the locale globally
+        // Debug: Check current state before setting
+        $debug_info = array(
+            'language' => $language,
+            'target_locale' => $locale,
+            'wp_lang_dir' => WP_LANG_DIR,
+            'mo_file' => WP_LANG_DIR . '/' . $locale . '.mo',
+            'mo_exists' => file_exists(WP_LANG_DIR . '/' . $locale . '.mo'),
+        );
+        
+        // Try to load .mo file explicitly before using switch_to_locale
+        $mo_file = WP_LANG_DIR . '/' . $locale . '.mo';
+        
+        if (file_exists($mo_file)) {
+            if (function_exists('load_textdomain')) {
+                $mo_loaded = load_textdomain('default', $mo_file);
+                $debug_info['mo_loaded'] = $mo_loaded;
+            }
+        }
+        
+        // Set the locale globally using switch_to_locale
         if (function_exists('switch_to_locale')) {
-            // WordPress 4.7+
-            switch_to_locale($locale);
+            $switch_result = switch_to_locale($locale);
+            $debug_info['switch_locale_result'] = $switch_result;
+            $debug_info['current_locale_after_switch'] = get_locale();
         } else {
-            // Fallback for older WordPress
             global $wp_locale;
             $GLOBALS['wp_locale'] = new WP_Locale();
-            if (function_exists('load_textdomain')) {
-                // This ensures mo files are loaded for the locale
-                load_textdomain('default', WP_LANG_DIR . '/' . $locale . '.mo');
-            }
+            $debug_info['fallback_used'] = true;
         }
 
         // Also set PHP locale for any PHP translation functions
-        setlocale(LC_ALL, $locale);
+        // Note: This might fail on some servers if locale is not installed at OS level
+        $country = $this->livelang_language_to_country($language);
+        $posix_locale = $language . '_' . strtoupper($country); // e.g. af_ZA
+
+        $locales_to_try = array(
+            $locale,
+            $locale . '.UTF-8',
+            $locale . '.utf8',
+            $posix_locale,
+            $posix_locale . '.UTF-8',
+            $posix_locale . '.utf8',
+            'en_US.UTF-8',
+            'C.UTF-8',
+            'C'
+        );
+
+        $php_locale_result = setlocale(LC_ALL, ...$locales_to_try);
+        $debug_info['php_setlocale_result'] = $php_locale_result;
+        
+        if (!$php_locale_result || $php_locale_result === false) {
+            $debug_info['php_setlocale_fallback'] = setlocale(LC_ALL, 0); // Get current
+        }
+        
+        // Store debug info as transient for easy access
+        set_transient('livelang_debug_locale_' . $language, $debug_info, HOUR_IN_SECONDS);
     }
 
+
+    /**
+     * Ensure locale persists throughout page generation
+     * This is called at multiple hooks to re-apply locale if it was reset
+     */
+    public function ensure_locale_persists() {
+        $language = $this->getCurrentLanguage();
+        
+        // Skip for default language (no need to switch)
+        if (empty($language) || $language === 'en') {
+            return;
+        }
+
+        $locale = $this->get_locale_for_language($language);
+        $current_locale = get_locale();
+
+        // Check if locale needs to be re-applied
+        if ($current_locale !== $locale) {        
+            // Re-apply the locale
+            if (function_exists('switch_to_locale')) {
+                switch_to_locale($locale);
+            }
+        }
+    }
+
+    /**
+     * Get diagnostic information for troubleshooting locale issues
+     */
+    public function get_locale_diagnostic_info() {
+        $language = $this->getCurrentLanguage();
+        $locale = $this->get_locale_for_language($language);
+        $mo_file = WP_LANG_DIR . '/' . $locale . '.mo';
+        
+        $info = array(
+            'current_language' => $language,
+            'current_locale' => $locale,
+            'wp_lang_dir' => WP_LANG_DIR,
+            'mo_file_path' => $mo_file,
+            'mo_file_exists' => file_exists($mo_file),
+            'get_locale()' => get_locale(),
+            'server_locales' => explode(',', (string)setlocale(LC_ALL, 0)),
+            'WordPress_version' => get_bloginfo('version'),
+            'function_switch_to_locale_exists' => function_exists('switch_to_locale'),
+        );
+        
+        // Check if debug log is enabled
+        if (defined('WP_DEBUG_LOG')) {
+            $info['wp_debug_log_enabled'] = WP_DEBUG_LOG;
+        }
+        
+        return $info;
+    }
 
     public function buffer_callback( $content ) {
 
@@ -474,7 +686,6 @@ class LiveLang_Frontend {
 
         $settings = get_option( 'livelang_settings', array() );
         $translate_numbers = ! empty( $settings['translate_numbers'] ) ? true : false;
-
         $cache_key   = "livelang_translations_{$language}_{$slug}";
         $cache_group = 'livelang';
 
@@ -510,23 +721,30 @@ class LiveLang_Frontend {
                 // {NUM} placeholder so we can inject the actual number when
                 // performing replacements.
                 if ( ! $translate_numbers && $this->text_contains_numbers( $original ) ) {
-                    // normalized key replaces digit runs with ::NUM::
-                    $normalized_key = preg_replace('/[0-9]+/', '::NUM::', $original);
+                    // Check if both original and translation hold numeric portions.
+                    $orig_numbers_count  = preg_match_all( '/\p{N}+/u', $original );
+                    $trans_numbers_count = preg_match_all( '/\p{N}+/u', $translated );
 
-                    // translated placeholder: replace any ascii digits in the
-                    // translated text with {NUM} so we can inject the matched
-                    // number from the live content. (This is a simple and
-                    // practical approach; localized digits might require
-                    // additional handling.)
-                    $translated_with_placeholder = preg_replace('/[0-9]+/', '{NUM}', $translated);
+                    if ( $orig_numbers_count > 0 && $orig_numbers_count === $trans_numbers_count ) {
+                        // The user provided matching numbers to establish a layout template
+                        $normalized_key              = preg_replace( '/\p{N}+/u', '::NUM::', $original );
+                        $translated_with_placeholder = preg_replace( '/\p{N}+/u', '{NUM}', $translated );
 
-                    // Save both exact and normalized entries. Normalized entry
-                    // should not overwrite existing exact translations.
-                    if (!isset($map[$normalized_key])) {
-                        $map[$normalized_key] = $translated_with_placeholder;
+                        if ( ! isset( $map[ $normalized_key ] ) ) {
+                            $map[ $normalized_key ] = $translated_with_placeholder;
+                        }
+                    } else {
+                        // User omitted the number (wanted to translate just text pieces) or counts mismatched.
+                        $original_text   = trim( $this->get_only_text_from_transation( $original ) );
+                        $translated_text = trim( $this->get_only_text_from_transation( $translated ) );
+
+                        if ( ! empty( $original_text ) && ! empty( $translated_text ) ) {
+                            $map[ $original_text ] = $translated_text;
+                        }
                     }
-                    // Also keep exact mapping so exact matches still work
-                    $map[$original] = $translated;
+
+                    // Do not keep exact mapping when number translation is disabled, 
+                    // otherwise it causes a double-replacement resulting in duplicated words.
                     continue;
                 }
                 
@@ -773,6 +991,30 @@ class LiveLang_Frontend {
             $output .= "Constant LIVELANG_CURRENT_LANG: NOT DEFINED<br>";
         }
 
+        // Add locale diagnostic info
+        $output .= "<br><strong>LOCALE INFORMATION:</strong><br>";
+        $locale_info = $this->get_locale_diagnostic_info();
+        foreach ($locale_info as $key => $value) {
+            if (is_array($value)) {
+                $output .= esc_html($key) . ": " . implode(', ', array_map('esc_html', $value)) . "<br>";
+            } else {
+                $output .= esc_html($key) . ": " . esc_html((string)$value) . "<br>";
+            }
+        }
+        
+        // Check for stored debug info from initialization
+        $init_debug = get_transient('livelang_debug_locale_' . $language);
+        if ($init_debug) {
+            $output .= "<br><strong>INITIALIZATION DEBUG:</strong><br>";
+            foreach ($init_debug as $key => $value) {
+                if (is_array($value)) {
+                    $output .= esc_html($key) . ": " . implode(', ', array_map('esc_html', $value)) . "<br>";
+                } else {
+                    $output .= esc_html($key) . ": " . esc_html((string)$value) . "<br>";
+                }
+            }
+        }
+
         $translations = $this->db->get_translations_for_slug($slug, $language);
         $output .= "<br><strong>Translations found in database: " . (is_array($translations) ? count($translations) : 0) . "</strong><br>";
 
@@ -911,7 +1153,10 @@ class LiveLang_Frontend {
         return isset( $languages[ $code ] ) ? $languages[ $code ] : $code;
     }
 
-    
+    public function livelang_rest_url( $path ) {
+        $base = site_url(); // safer than home_url
+        return $base . '/?rest_route=/' . ltrim( $path, '/' );
+    }
 
     public function enqueue_assets() {
         wp_enqueue_style(
@@ -953,6 +1198,10 @@ class LiveLang_Frontend {
             }
         }
 
+        $rest_url = $this->livelang_rest_url( 'livelang-api/v1' );
+        if ( is_ssl() ) {
+            $rest_url = set_url_scheme( $rest_url, 'https' );
+        }
 
         // Get languages from database
         $languages_data = $this->get_languages_for_frontend();
@@ -965,7 +1214,7 @@ class LiveLang_Frontend {
             'livelang-frontend',
             'LiveLangSettings',
             array(
-                'restUrl' => esc_url_raw( rest_url( 'livelang/v1' ) ),
+                'restUrl' => untrailingslashit( esc_url_raw( $rest_url ) ),
                 'nonce'   => wp_create_nonce( 'wp_rest' ),
                 'enable_translation' => $this->is_enabled_for_user(),
                 'slug'    => $slug,
@@ -973,7 +1222,7 @@ class LiveLang_Frontend {
                 'homepageSlug' => $this->get_homepage_slug(),
                 'homeUrl' => get_option( 'home' ),
                 'languages' => $languages,
-                'dict'    => $dict, 
+                'dict'    => $dict,
                 'i18n'    => array(
                     'editText'   => __( 'Edit translation', 'livelang' ),
                     'original'   => __( 'Original', 'livelang' ),
@@ -1027,10 +1276,6 @@ class LiveLang_Frontend {
         if ( defined( 'LIVELANG_CURRENT_LANG' ) ) {
             $lang = LIVELANG_CURRENT_LANG;
             if ( $lang ) {
-                // Only set cookie if headers haven't been sent (prevents issues with REST API/block editor)
-                if ( ! headers_sent() ) {
-                    setcookie('livelang_lang', $lang, time() + MONTH_IN_SECONDS, COOKIEPATH, COOKIE_DOMAIN);
-                }
                 return $lang;
             }
         }
@@ -1298,6 +1543,11 @@ class LiveLang_Frontend {
             //return $url;
         }
 
+        // Fast exclusion for critical system URLs to avoid parsing bugs
+        if ( strpos( $url, 'wp-json' ) !== false || strpos( $url, 'rest_route' ) !== false || strpos( $url, 'wp-admin' ) !== false || strpos( $url, 'wp-login.php' ) !== false ) {
+            return $url;
+        }
+
         // Basic check to exclude assets
         if ( preg_match( '/\.(css|js|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot|xml)$/i', $url ) ) {
             return $url;
@@ -1310,6 +1560,7 @@ class LiveLang_Frontend {
         $raw_home = get_option( 'home' );
         $home_parsed = parse_url( $raw_home );
         $home_host = isset($home_parsed['host']) ? $home_parsed['host'] : '';
+        $home_path = isset( $home_parsed['path'] ) ? rtrim( $home_parsed['path'], '/' ) : '';
 
         // Ensure it's our host
         if ( isset($parsed['host']) && $parsed['host'] !== $home_host ) {
@@ -1318,7 +1569,14 @@ class LiveLang_Frontend {
 
         // Get path
         $path = isset($parsed['path']) ? $parsed['path'] : '/';
-        
+
+        if ( $home_path && strpos( $path, $home_path ) === 0 ) {
+            $path = substr( $path, strlen( $home_path ) );
+            if ( ! $path ) {
+                $path = '/';
+            }
+        }
+
         // Exclude system paths
         if ( preg_match( '#^/(wp-admin|wp-content|wp-json|wp-includes)#', $path ) ) {
             return $url;
@@ -1339,6 +1597,8 @@ class LiveLang_Frontend {
              }
              $path = '/' . $lang . $path;
         }
+
+        $path = $home_path . $path;
 
         // Rebuild URL
         // Use component if available, else fallback to home settings or default

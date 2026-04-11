@@ -1049,6 +1049,7 @@
       const mainButton = this.mainButton;
       fetch(this.settings.restUrl + "/save", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
           "X-WP-Nonce": this.settings.nonce,
