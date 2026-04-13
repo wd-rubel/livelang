@@ -774,6 +774,15 @@ class LiveLang_Admin {
         }
 
         update_option( 'livelang_languages', $languages );
+        
+        // Update cookie to reflect new default language
+        if ( ! headers_sent() ) {
+            setcookie( 'livelang_lang', $code, time() + MONTH_IN_SECONDS, COOKIEPATH, COOKIE_DOMAIN );
+        }
+        
+        // Clear cache so locale updates immediately
+        wp_cache_flush();
+        
         wp_send_json_success();
     }
 }

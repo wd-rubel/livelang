@@ -14,7 +14,7 @@
       this.currentElement = null;
 
       this.bar = document.getElementById("livelang-bar");
-    
+
       document.addEventListener("DOMContentLoaded", () => {
         this.languageSwitcherInit();
         this.setDefaultLanguage();
@@ -70,16 +70,22 @@
       if (reload) {
         const homeUrl = this.settings.homeUrl || window.location.origin;
         const baseUrl = homeUrl.replace(/\/$/, "");
-        
+
         const path = this.getCleanPath();
-        
-        window.location.href = baseUrl + "/" + langCode + path;
+        if (
+          LiveLangSettings.defaultLanguage &&
+          langCode === LiveLangSettings.defaultLanguage
+        ) {
+          window.location.href = baseUrl + path;
+        } else {
+          window.location.href = baseUrl + "/" + langCode + path;
+        }
       }
     }
 
     updateLanguageDropdown() {
       if (!this.bar) return;
-      
+
       const languages = this.getAllLanguages();
       const currentLang = this.settings.currentLanguage;
       const currentLabel = languages[currentLang] || currentLang;
@@ -87,17 +93,17 @@
       // Update button text
       const toggleBtn = this.bar.querySelector(".livelang-language-toggle");
       if (toggleBtn) {
-         toggleBtn.innerHTML = `${currentLabel} <span class="livelang-toggle-icon">▼</span>`;
+        toggleBtn.innerHTML = `${currentLabel} <span class="livelang-toggle-icon">▼</span>`;
       }
 
       // Update active class in list
       const listItems = this.bar.querySelectorAll(".livelang-language-list a");
-      listItems.forEach(a => {
-         if(a.getAttribute('data-lang') === currentLang) {
-             a.classList.add('active');
-         } else {
-             a.classList.remove('active');
-         }
+      listItems.forEach((a) => {
+        if (a.getAttribute("data-lang") === currentLang) {
+          a.classList.add("active");
+        } else {
+          a.classList.remove("active");
+        }
       });
     }
 
@@ -106,7 +112,8 @@
         this.settings.currentLanguage == undefined ||
         this.settings.currentLanguage == null
       ) {
-        this.settings.currentLanguage = "en";
+        this.settings.currentLanguage =
+          LiveLangSettings.defaultLanguage || "en";
       }
       this.updateLanguageDropdown();
     }
@@ -127,10 +134,10 @@
         if (langLink) {
           e.preventDefault();
           const langCode = langLink.getAttribute("data-lang");
-          
-          if (langLink.closest('#livelang-toggle')) {
-             this.changeLanguage(langCode, false); // false = no reload
-             this.updateLanguageDropdown();
+
+          if (langLink.closest("#livelang-toggle")) {
+            this.changeLanguage(langCode, false); // false = no reload
+            this.updateLanguageDropdown();
           }
 
           const homeUrl = this.settings.homeUrl || window.location.origin;
@@ -147,8 +154,8 @@
             ";path=/";
 
           if (path === "/" || path === "") {
-             const newUrl = baseUrl + "/" + langCode + "/";
-             window.location.href = newUrl;
+            const newUrl = baseUrl + "/" + langCode + "/";
+            window.location.href = newUrl;
           } else {
             const newUrl = baseUrl + "/" + langCode + path;
             window.location.href = newUrl;
@@ -165,10 +172,10 @@
         }
       });
     }
-
-    
   }
 
   // single instance (for debug: window.LiveLangFrontendInstance)
-  window.LiveLangFrontendInstance = new LiveLangFrontend(window.LiveLangSettings);
+  window.LiveLangFrontendInstance = new LiveLangFrontend(
+    window.LiveLangSettings,
+  );
 })();

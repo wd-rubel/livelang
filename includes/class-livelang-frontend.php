@@ -257,7 +257,12 @@ class LiveLang_Frontend {
                 }
             } else {
                 if ( ! defined( 'LIVELANG_CURRENT_LANG' ) ) {
-                    define( 'LIVELANG_CURRENT_LANG', 'en' );
+                    $default_lang = $this->get_default_language();
+                    define( 'LIVELANG_CURRENT_LANG', $default_lang );
+                    // Set cookie for default language too
+                    if ( ! headers_sent() ) {
+                        setcookie('livelang_lang', $default_lang, time() + MONTH_IN_SECONDS, COOKIEPATH, COOKIE_DOMAIN);
+                    }
                 }
             }
         }
@@ -413,7 +418,7 @@ class LiveLang_Frontend {
             }
         }
 
-        if ( empty( $lang ) || $lang === 'en' ) {
+        if ( empty( $lang ) || $lang === $this->get_default_language() ) {
             return $locale;
         }
 
@@ -512,7 +517,7 @@ class LiveLang_Frontend {
     protected function set_current_locale() {
         // Get language safely (doesn't rely on constant)
         $language = $this->getCurrentLanguage();
-        if (empty($language) || $language === 'en') {
+        if (empty($language)) {
             return;
         }
 
@@ -585,7 +590,7 @@ class LiveLang_Frontend {
         $language = $this->getCurrentLanguage();
         
         // Skip for default language (no need to switch)
-        if (empty($language) || $language === 'en') {
+        if (empty($language) || $language === $this->get_default_language()) {
             return;
         }
 
@@ -849,7 +854,7 @@ class LiveLang_Frontend {
         try {
             // Get language
             $language = $this->getCurrentLanguage();
-            if (empty($language) || $language === 'en') {
+            if (empty($language) || $language === $this->get_default_language()) {
                 return $translated;
             }
 
@@ -893,7 +898,7 @@ class LiveLang_Frontend {
         try {
             // Get language
             $language = $this->getCurrentLanguage();
-            if (empty($language) || $language === 'en') {
+            if (empty($language) || $language === $this->get_default_language()) {
                 return $translated;
             }
 
@@ -943,7 +948,7 @@ class LiveLang_Frontend {
         try {
             // Get language
             $language = $this->getCurrentLanguage();
-            if (empty($language) || $language === 'en') {
+            if (empty($language) || $language === $this->get_default_language()) {
                 return $translated;
             }
 
@@ -1075,7 +1080,7 @@ class LiveLang_Frontend {
         
         // Remove language prefix if present (simple string operation, no function calls)
         $language = $this->getCurrentLanguage();
-        if (!empty($language) && $language !== 'en') {
+        if (!empty($language) && $language !== $this->get_default_language()) {
             $prefix = $language . '/';
             if (strpos($slug, $prefix) === 0) {
                 $slug = substr($slug, strlen($prefix));
@@ -1186,6 +1191,7 @@ class LiveLang_Frontend {
 
         $slug         = $this->get_current_slug();
         $language     = $this->getCurrentLanguage();
+        $default_lang = $this->get_default_language();
         $translations = $this->db->get_translations_for_slug( $slug, $language );
 
         $dict = array();
@@ -1219,6 +1225,7 @@ class LiveLang_Frontend {
                 'enable_translation' => $this->is_enabled_for_user(),
                 'slug'    => $slug,
                 'currentLanguage' => $this->getCurrentLanguage(),
+                'defaultLanguage' => $this->get_default_language(),
                 'homepageSlug' => $this->get_homepage_slug(),
                 'homeUrl' => get_option( 'home' ),
                 'languages' => $languages,
@@ -1529,86 +1536,15 @@ class LiveLang_Frontend {
     }
 
     /**
-     * Filter URLs to include current language prefix
+     * Filter URLs - DO NOT add language prefix automatically
+     * Only respect language codes if explicitly provided in URL.
+     * Language is managed through cookies and locale, not URL modification.
      */
     public function filter_url( $url ) {
-        if ( is_admin() || ! $url || $url === '#' || strpos( $url, '#' ) === 0 ) {
-            return $url;
-        }
-
-        $lang = $this->getCurrentLanguage();
-
-        // Skip if default language or matching error/empty
-        if ( ! $lang || $lang === 'en' || $lang === $this->get_default_language() ) {
-            //return $url;
-        }
-
-        // Fast exclusion for critical system URLs to avoid parsing bugs
-        if ( strpos( $url, 'wp-json' ) !== false || strpos( $url, 'rest_route' ) !== false || strpos( $url, 'wp-admin' ) !== false || strpos( $url, 'wp-login.php' ) !== false ) {
-            return $url;
-        }
-
-        // Basic check to exclude assets
-        if ( preg_match( '/\.(css|js|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot|xml)$/i', $url ) ) {
-            return $url;
-        }
-
-        // Parse URL
-        $parsed = parse_url( $url );
-        
-        // Get raw home URL to check host match (avoid infinite loop by NOT calling home_url())
-        $raw_home = get_option( 'home' );
-        $home_parsed = parse_url( $raw_home );
-        $home_host = isset($home_parsed['host']) ? $home_parsed['host'] : '';
-        $home_path = isset( $home_parsed['path'] ) ? rtrim( $home_parsed['path'], '/' ) : '';
-
-        // Ensure it's our host
-        if ( isset($parsed['host']) && $parsed['host'] !== $home_host ) {
-            return $url;
-        }
-
-        // Get path
-        $path = isset($parsed['path']) ? $parsed['path'] : '/';
-
-        if ( $home_path && strpos( $path, $home_path ) === 0 ) {
-            $path = substr( $path, strlen( $home_path ) );
-            if ( ! $path ) {
-                $path = '/';
-            }
-        }
-
-        // Exclude system paths
-        if ( preg_match( '#^/(wp-admin|wp-content|wp-json|wp-includes)#', $path ) ) {
-            return $url;
-        }
-
-        // Check availability of prefix
-        if ( preg_match( '#^/' . $lang . '(/|$)#', $path ) ) {
-            return $url;
-        }
-
-        // Inject prefix
-        if ( $path === '/' ) {
-            $path = '/' . $lang . '/';
-        } else {
-             // ensure path starts with /
-             if ( substr( $path, 0, 1 ) !== '/' ) {
-                 $path = '/' . $path;
-             }
-             $path = '/' . $lang . $path;
-        }
-
-        $path = $home_path . $path;
-
-        // Rebuild URL
-        // Use component if available, else fallback to home settings or default
-        $scheme = isset($parsed['scheme']) ? $parsed['scheme'] . '://' : (isset($home_parsed['scheme']) ? $home_parsed['scheme'] . '://' : '//');
-        $host   = isset($parsed['host']) ? $parsed['host'] : $home_host;
-        $port   = isset($parsed['port']) ? ':' . $parsed['port'] : '';
-        $query  = isset($parsed['query']) ? '?' . $parsed['query'] : '';
-        $frag   = isset($parsed['fragment']) ? '#' . $parsed['fragment'] : '';
-        
-        return $scheme . $host . $port . $path . $query . $frag;
+        // Simply return URL without modification
+        // This prevents automatic language code injection into URLs
+        // Language will be determined by cookies/current selection instead
+        return $url;
     }
 
     
