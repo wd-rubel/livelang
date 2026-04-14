@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LiveLang - Smart Visual Translator
  * Description: Inline visual translator for WordPress. Click → edit → translate → save. Page/slug based + global translations.
- * Version:     1.0.3
+ * Version:     1.0.4
  * Author: LiveLang Team
  * Author URI: https://livelang.pro/
  * License: GPL v2 or later
@@ -10,6 +10,20 @@
  * Text Domain: livelang
  * Domain Path: /languages
  */
+
+if ( ! defined( 'ABSPATH' ) ) {
+    exit;
+}
+
+// Define constants ONCE at the very beginning
+if ( ! defined( 'LIVELANG_VERSION' ) ) {
+    define( 'LIVELANG_VERSION', '1.0.3' );
+    define( 'LIVELANG_PLUGIN_FILE', __FILE__ );
+    define( 'LIVELANG_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+    define( 'LIVELANG_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
+    define( 'LIVELANG_PLUGIN_BASE', plugin_basename( LIVELANG_PLUGIN_FILE ) );
+}
+
 /* Set Freemius into development mode */
 if ( ! function_exists( 'liv_fs' ) ) {
     // Create a helper function for easy SDK access.
@@ -60,12 +74,6 @@ if ( ! function_exists( 'liv_fs' ) ) {
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
-
-define( 'LIVELANG_VERSION', '1.0.3' );
-define( 'LIVELANG_PLUGIN_FILE', __FILE__ );
-define( 'LIVELANG_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
-define( 'LIVELANG_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
-define( 'LIVELANG_PLUGIN_BASE', plugin_basename( LIVELANG_PLUGIN_FILE ) );
 
 require_once LIVELANG_PLUGIN_DIR . 'includes/class-livelang-db.php';
 require_once LIVELANG_PLUGIN_DIR . 'includes/class-livelang-admin.php';

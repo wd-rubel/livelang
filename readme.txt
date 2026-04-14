@@ -4,7 +4,7 @@ Tags: translator, visual translator, translation, multilanguage, visual editor
 Requires at least: 5.0
 Requires PHP: 7.4
 Tested up to: 6.9
-Stable tag: 1.0.3
+Stable tag: 1.0.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -109,6 +109,9 @@ No. The built-in JSON caching system minimizes database queries and ensures high
 6. Global vs page-based translation options
 
 == Changelog ==
+
+= 1.0.4 =
+* Fixed 404 issues for multi language
 
 = 1.0.3 =
 * Remove language code from url for default language
