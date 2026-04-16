@@ -94,6 +94,7 @@ class LiveLang_Admin {
         add_action( 'wp_ajax_livelang_clear_translations', array( $this, 'ajax_clear_translations' ) );
         add_action( 'admin_post_livelang_delete', array( $this, 'handle_delete' ) );
         add_action( 'admin_post_livelang_toggle_status', array( $this, 'handle_toggle_status' ) );
+        add_action( 'admin_post_livelang_flush_rules', array( $this, 'handle_flush_rules' ) );
         add_action( 'wp_ajax_livelang_add_language', array( $this, 'ajax_add_language' ) );
         add_action( 'wp_ajax_livelang_delete_language', array( $this, 'ajax_delete_language' ) );
         add_action( 'wp_ajax_livelang_update_language', array( $this, 'ajax_update_language' ) );
@@ -196,9 +197,17 @@ class LiveLang_Admin {
         );
 
         add_settings_field(
-            'livelang_maintenance',
+            'livelang_maintenance_clear',
             __( 'Clear All Translations', 'livelang' ),
-            array( $this, 'field_maintenance' ),
+            array( $this, 'field_maintenance_clear' ),
+            'livelang-settings',
+            'livelang_maintenance'
+        );
+
+        add_settings_field(
+            'livelang_maintenance_flush',
+            __( 'Flush Rewrite Rules', 'livelang' ),
+            array( $this, 'field_maintenance_flush' ),
             'livelang-settings',
             'livelang_maintenance'
         );
@@ -275,12 +284,22 @@ class LiveLang_Admin {
         <?php
     }
 
-    public function field_maintenance() {
+    public function field_maintenance_clear() {
         ?>
         <button class="button button-secondary" id="livelang-clear-translations-maintenance">
             <?php esc_html_e( 'Clear All Translations', 'livelang' ); ?>
         </button>
         <p><?php esc_html_e( 'You can clear all stored translations. This action cannot be undone.', 'livelang' ); ?></p>
+        <?php
+    }
+
+    public function field_maintenance_flush() {
+        $flush_url = wp_nonce_url( admin_url( 'admin-post.php?action=livelang_flush_rules' ), 'livelang_flush_rules_nonce' );
+        ?>
+        <a href="<?php echo esc_url( $flush_url ); ?>" class="button button-secondary">
+            <?php esc_html_e( 'Flush Rewrite Rules', 'livelang' ); ?>
+        </a>
+        <p><?php esc_html_e( 'Use this if language permalinks lead to a 404 error.', 'livelang' ); ?></p>
         <?php
     }
 
@@ -504,6 +523,18 @@ class LiveLang_Admin {
         }
 
         wp_safe_redirect( admin_url( 'admin.php?page=livelang' ) );
+        exit;
+    }
+
+    public function handle_flush_rules() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( esc_html__( 'Not allowed', 'livelang' ) );
+        }
+        check_admin_referer( 'livelang_flush_rules_nonce' );
+
+        flush_rewrite_rules( true );
+
+        wp_safe_redirect( add_query_arg( 'settings-updated', 'true', admin_url( 'admin.php?page=livelang-settings' ) ) );
         exit;
     }
 

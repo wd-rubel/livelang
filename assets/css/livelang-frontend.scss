@@ -308,9 +308,9 @@ $transition-smooth: cubic-bezier(0.16, 1, 0.3, 1);
 
 // Menu item
 .menu-item.livelang-language-item {
- a {
+  a {
     justify-content: start;
- }
+  }
 }
 
 /* Edit mode: disable links so user accidentally navigate না করে */
@@ -340,6 +340,12 @@ $transition-smooth: cubic-bezier(0.16, 1, 0.3, 1);
 .livelang-temp-input:not(button),
 .livelang-temp-placeholder-input:not(button) {
   background: #b7b7b712 !important;
+}
+.elementor-editor-active [contenteditable="true"],
+.elementor-editor-active .livelang-temp-input,
+.elementor-editor-active .livelang-temp-placeholder-input {
+  outline: none !important;
+  background: transparent !important;
 }
 
 /* Dropdown inside the bottom bar should open upwards */

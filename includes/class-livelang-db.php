@@ -43,7 +43,7 @@ class LiveLang_DB {
         global $wpdb;
         // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         if ( $language ) {
-            $sql = $wpdb->prepare( "SELECT * FROM {$this->table} WHERE (slug = %s OR is_global = 1) AND (language = %s OR is_global = 1) AND status = 'active'", $slug, $language );
+            $sql = $wpdb->prepare( "SELECT * FROM {$this->table} WHERE (slug = %s OR is_global = 1) AND language = %s AND status = 'active'", $slug, $language );
         } else {
             $sql = $wpdb->prepare( "SELECT * FROM {$this->table} WHERE (slug = %s OR is_global = 1) AND status = 'active'", $slug );
         }
@@ -55,7 +55,7 @@ class LiveLang_DB {
         global $wpdb;
         // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
         if ( $language ) {
-            $sql = $wpdb->prepare( "SELECT * FROM {$this->table} WHERE original_text = %s AND (slug = %s OR is_global = 1) AND (language = %s OR is_global = 1) AND status = 'active' LIMIT 1", $original_text, $slug, $language );
+            $sql = $wpdb->prepare( "SELECT * FROM {$this->table} WHERE original_text = %s AND (slug = %s OR is_global = 1) AND language = %s AND status = 'active' LIMIT 1", $original_text, $slug, $language );
         } else {
             $sql = $wpdb->prepare( "SELECT * FROM {$this->table} WHERE original_text = %s AND (slug = %s OR is_global = 1) AND status = 'active' LIMIT 1", $original_text, $slug );
         }
@@ -66,7 +66,7 @@ class LiveLang_DB {
     public function get_translations_for_global() {
         global $wpdb;
         // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-        $sql = $wpdb->prepare( "SELECT * FROM {$this->table} WHERE is_global = 1 AND status = 'active'" );
+        $sql = "SELECT * FROM {$this->table} WHERE is_global = 1 AND status = 'active'";
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
         return $wpdb->get_results( $sql );
     }

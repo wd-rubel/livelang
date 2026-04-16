@@ -1,12 +1,11 @@
 (function () {
   "use strict";
 
-  if (!window.LiveLangSettings) {
-    return;
-  }
-
   class LiveLangEditor {
     constructor(settings) {
+      console.log("LiveLang: LiveLangEditor constructor called");
+      console.log("LiveLang: isBuilderActive check:", isBuilderActive());
+
       this.settings = settings;
       this.enabled = false;
       this.undoStack = [];
@@ -17,6 +16,7 @@
       this.onEditableKeydown = this.onEditableKeydown.bind(this);
 
       document.addEventListener("DOMContentLoaded", () => {
+        console.log("LiveLang: DOMContentLoaded event");
         this.initBar();
         //this.updateCurrentLanguage();
         //this.languageSwitcherInit();
@@ -52,10 +52,10 @@
         // Get the base URL from settings
         const homeUrl = this.settings.homeUrl || window.location.origin;
         const baseUrl = homeUrl.replace(/\/$/, "");
-        
+
         // Remove existing language prefix from path
-        const path = window.location.pathname.replace(/^\/[a-z]{2}\//, "/");
-        
+        const path = window.location.pathname.replace(/^\/[a-z]{2,5}\//, "/");
+
         // Construct new URL with language prefix
         window.location.href = baseUrl + "/" + langCode + path;
       }
@@ -65,8 +65,8 @@
       const parts = window.location.pathname.split("/").filter(Boolean);
       const lang = parts[0]; // 'fr'
 
-      // simple validation (2-letter)
-      return /^[a-z]{2}$/.test(lang) ? lang : "en";
+      // simple validation (2-5 letter)
+      return /^[a-z]{2,5}$/.test(lang) ? lang : "en";
     }
 
     updateCurrentLanguage() {
@@ -81,25 +81,27 @@
 
     updateLanguageDropdown() {
       if (!this.bar) return;
-      
+
       const languages = this.getAllLanguages();
       const currentLang = this.settings.currentLanguage;
       const currentLabel = languages[currentLang] || currentLang;
 
       // Update button text
-      const toggleBtn = this.bar.querySelector(".livelang-language-toggle .livelang-current-language-label");
+      const toggleBtn = this.bar.querySelector(
+        ".livelang-language-toggle .livelang-current-language-label",
+      );
       if (toggleBtn) {
-         toggleBtn.innerHTML = currentLabel;
+        toggleBtn.innerHTML = currentLabel;
       }
 
       // Update active class in list
       const listItems = this.bar.querySelectorAll(".livelang-language-list a");
-      listItems.forEach(a => {
-         if(a.getAttribute('data-lang') === currentLang) {
-             a.classList.add('active');
-         } else {
-             a.classList.remove('active');
-         }
+      listItems.forEach((a) => {
+        if (a.getAttribute("data-lang") === currentLang) {
+          a.classList.add("active");
+        } else {
+          a.classList.remove("active");
+        }
       });
     }
 
@@ -129,22 +131,21 @@
     //     if (langLink) {
     //       e.preventDefault();
     //       const langCode = langLink.getAttribute("data-lang");
-          
+
     //       // Special handling for Translation Bar switcher: No redirect, just update state
     //       if (langLink.closest('#livelang-toggle')) {
     //          this.changeLanguage(langCode, false); // false = no reload
     //          this.updateLanguageDropdown();
-             
+
     //          // Close dropdown
     //          const dropdown = langLink.closest(".livelang-language-dropdown");
     //          //if(dropdown) dropdown.classList.remove("open");
     //          //return;
     //       }
 
-
     //       // Get the base URL from settings
     //       const homeUrl = this.settings.homeUrl || window.location.origin;
-          
+
     //       // Get current path
     //       let path = window.location.pathname;
 
@@ -162,7 +163,6 @@
     //       // Remove trailing slash from homeUrl if present
     //       const baseUrl = homeUrl.replace(/\/$/, "");
 
-
     //       // If on homepage, redirect to clean language root URL
     //       if (path === "/" || path === "") {
     //          const date = new Date();
@@ -179,7 +179,6 @@
     //         // Other pages/posts - construct URL with language prefix
     //         const newUrl = baseUrl + "/" + langCode + path;
 
-            
     //         // Set cookie before redirect
     //         const date = new Date();
     //         date.setTime(date.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
@@ -189,7 +188,7 @@
     //           ";expires=" +
     //           date.toUTCString() +
     //           ";path=/";
-            
+
     //         // Perform redirect
     //         window.location.href = newUrl;
     //       }
@@ -248,11 +247,20 @@
     }
 
     toggleMode() {
+      console.log("LiveLang: toggleMode called, enabled:", this.enabled);
       this.enabled = !this.enabled;
 
       if (this.enabled) {
+        console.log("LiveLang: Enabling editing mode");
+        // Check one more time if builder became active
+        if (isBuilderActive()) {
+          console.warn("LiveLang: Builder detected when enabling, canceling.");
+          this.enabled = false;
+          return;
+        }
         this.enableEditing();
       } else {
+        console.log("LiveLang: Disabling editing mode");
         this.disableEditing();
       }
 
@@ -262,7 +270,9 @@
       );
       if (this.bar) {
         this.bar.classList.toggle("is-active", this.enabled);
-        this.mainButton.innerHTML = this.enabled ? this.settings.i18n.translating : this.settings.i18n.translate;
+        this.mainButton.innerHTML = this.enabled
+          ? this.settings.i18n.translating
+          : this.settings.i18n.translate;
       }
     }
 
@@ -480,7 +490,7 @@
 
         // clear currentElement so makeEditable can set a new one
         this.currentElement = null;
-        
+
         // Update main button back to "Translating" if we are still enabled
         if (this.enabled && this.mainButton) {
           this.mainButton.innerHTML = this.settings.i18n.translating;
@@ -608,7 +618,6 @@
           inputType === "button" ||
           inputType === "reset"
         ) {
-
           // Create a temporary text input that replaces the visual appearance
           const temp = document.createElement("input");
           temp.type = "text";
@@ -688,7 +697,7 @@
       }
 
       this.currentElement = el;
-      
+
       // Update main button to "Save" when an element becomes editable
       if (this.mainButton) {
         this.mainButton.innerHTML = this.settings.i18n.save;
@@ -1123,6 +1132,4 @@
 
   // single instance (for debug: window.LiveLangEditorInstance)
   window.LiveLangEditorInstance = new LiveLangEditor(window.LiveLangSettings);
-  
-  
 })();

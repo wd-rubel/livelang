@@ -258,6 +258,13 @@
   background: rgba(183, 183, 183, 0.0705882353) !important;
 }
 
+.elementor-editor-active [contenteditable=true],
+.elementor-editor-active .livelang-temp-input,
+.elementor-editor-active .livelang-temp-placeholder-input {
+  outline: none !important;
+  background: transparent !important;
+}
+
 /* Dropdown inside the bottom bar should open upwards */
 .livelang-bar .livelang-language-dropdown .livelang-language-list {
   top: auto;

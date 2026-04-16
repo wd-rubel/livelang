@@ -25,10 +25,7 @@ class LiveLang_Frontend {
         add_filter( 'request', array( $this, 'handle_language_request' ) );
         add_filter( 'redirect_canonical', array( $this, 'disable_canonical_redirect_for_lang' ), 10, 2 );
         add_action( 'init', array( $this, 'add_rewrite_tag' ) );
-        add_action( 'init', array( $this, 'add_permastruct' ) );
-        
-        // Auto-flush rewrite rules if needed
-        add_action( 'admin_init', array( $this, 'maybe_flush_rewrite_rules' ) );
+        add_action( 'init', array( $this, 'setup_language_uri' ), 0 );
 
         // Early locale filters
         add_filter( 'locale', array( $this, 'filter_wp_locale' ), 20 );
@@ -52,53 +49,58 @@ class LiveLang_Frontend {
         add_filter( 'walker_nav_menu_start_el', array( $this, 'livelang_menu_item_output' ), 15, 4 );
         add_action( 'wp_footer', array( $this, 'render_editor_bar' ) );
         
-        // Debug endpoint for admins (visits ?livelang_debug=1 to see debug info)
-        add_action( 'wp', array( $this, 'maybe_show_debug_info' ) );
-        
         // Register gettext hooks at wp action (when query is ready)
         //add_action('wp', [$this, 'init_gettext_hooks']);
 
     }
 
     function add_rewrite_tag() {
-        add_rewrite_tag( '%lang%', '([a-z]{2})' );
+        add_rewrite_tag( '%lang%', '([a-z]{2,5})' );
     }
 
-    /**
-     * Auto-flush rewrite rules if needed
-     */
-    public function maybe_flush_rewrite_rules() {
-        // Check if we need to flush
-        $option = 'livelang_rewrite_rules_flushed';
-        $flushed = get_transient( $option );
-        
-        if ( ! $flushed ) {
-            // Flush rewrite rules
-            flush_rewrite_rules( false );
-            // Set transient for 1 hour to avoid repeated flushing
-            set_transient( $option, true, HOUR_IN_SECONDS );
+    public function setup_language_uri() {
+        if (!isset($_SERVER['REQUEST_URI'])) {
+            return;
         }
-    }
-
-    function add_permastruct() {
-        // Add custom rewrite rules for language/slug pattern
-        // These rules MUST come before any general rules
         
-        // Rule 1: Language only (homepage) - matches /bn/, /es/, etc.
-        add_rewrite_rule(
-            '^([a-z]{2})/?$',
-            'index.php?lang=$matches[1]',
-            'top'
-        );
+        $request_uri = $_SERVER['REQUEST_URI'];
+        $path = parse_url($request_uri, PHP_URL_PATH);
+        $home_path = parse_url(get_option('home'), PHP_URL_PATH);
         
-        // Rule 2: Language + any path - matches /bn/contact/, /bn/parent/child/, etc.
-        // IMPORTANT: This captures everything after the language code
-        add_rewrite_rule(
-            '^([a-z]{2})/(.+?)/?$',
-            'index.php?lang=$matches[1]&pagename=$matches[2]',
-            'top'
-        );
+        if ($home_path && $home_path !== '/') {
+            $path = preg_replace('#^' . preg_quote(rtrim($home_path, '/'), '#') . '#', '', $path);
+        }
+        
+        if (empty($path) || substr($path, 0, 1) !== '/') {
+            $path = '/' . $path;
+        }
 
+        if (preg_match('#^/([a-z]{2,5})(?:/(.*))?$#', $path, $matches)) {
+            $lang_from_url = $matches[1];
+            
+            $valid_codes = array();
+            $languages = $this->get_languages_for_frontend();
+            if (is_array($languages)) {
+                foreach ($languages as $l) {
+                    if (isset($l['code'])) {
+                        $valid_codes[] = $l['code'];
+                    }
+                }
+            }
+            
+            if (in_array($lang_from_url, $valid_codes)) {
+                $_GET['lang'] = $lang_from_url;
+                $rest_of_path = isset($matches[2]) ? '/' . ltrim($matches[2], '/') : '/';
+                
+                $query = parse_url($request_uri, PHP_URL_QUERY);
+                $new_uri = $home_path && $home_path !== '/' ? rtrim($home_path, '/') . $rest_of_path : $rest_of_path;
+                if ($query) {
+                    $new_uri .= '?' . $query;
+                }
+                
+                $_SERVER['REQUEST_URI'] = $new_uri;
+            }
+        }
     }
 
     function add_query_vars( $vars ) {
@@ -107,161 +109,34 @@ class LiveLang_Frontend {
     }
 
     function handle_language_request( $query_vars ) {
-        // IMPORTANT: This filter runs AFTER WordPress has already processed rewrite rules
-        // So query_vars['lang'] and query_vars['pagename'] should already be set by the rewrite rule
-        
-        // If language is already in query vars from rewrite rule, we're good
-        if ( ! empty( $query_vars['lang'] ) ) {
-            // Language is already set by rewrite rule, just ensure it's valid
-            $languages = $this->get_languages_for_frontend();
-            $valid_codes = array();
-            foreach ( $languages as $l ) {
-                if ( isset( $l['code'] ) ) {
-                    $valid_codes[] = $l['code'];
-                }
-            }
-            
-            if ( ! in_array( $query_vars['lang'], $valid_codes ) ) {
-                unset( $query_vars['lang'] );
-            }
-            
-            return $query_vars;
+        // Since we extract the language early in setup_language_uri,
+        // WordPress natively parses the query_vars. We just need to persist the lang.
+        if (isset($_GET['lang'])) {
+            $query_vars['lang'] = sanitize_key($_GET['lang']);
         }
+
+        // Handle Lang-only request (Homepage for a language)
+        // If we only have 'lang' (and possibly 'paged'/'page'), it's the true homepage
+        $core_vars = array_diff( array_keys( $query_vars ), array( 'lang', 'paged', 'page', 'preview' ) );
         
-        // FALLBACK: If rewrite rule didn't match, manually parse the URL
-        // This handles cases where rewrite rules haven't been properly flushed
-        $request_uri = isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '';
-        $path = parse_url( $request_uri, PHP_URL_PATH );
-        
-        $home_path = parse_url( get_option( 'home' ), PHP_URL_PATH );
-        if ( $home_path && $home_path !== '/' ) {
-            $path = preg_replace( '#^' . preg_quote( rtrim( $home_path, '/' ), '#' ) . '#', '', $path );
-        }
-        
-        if ( ! $path || substr( $path, 0, 1 ) !== '/' ) {
-            $path = '/' . $path;
-        }
-        
-        // Try to extract language and slug from URL
-        if ( preg_match( '#^/([a-z]{2})(?:/(.*))?$#', $path, $matches ) ) {
-            $lang_from_url = $matches[1];
-            $rest_of_path = isset( $matches[2] ) ? rtrim( $matches[2], '/' ) : '';
-            
-            // Verify language is valid
-            $languages = $this->get_languages_for_frontend();
-            $valid_codes = array();
-            foreach ( $languages as $l ) {
-                if ( isset( $l['code'] ) ) {
-                    $valid_codes[] = $l['code'];
-                }
-            }
-            
-            if ( in_array( $lang_from_url, $valid_codes ) ) {
-                $query_vars['lang'] = $lang_from_url;
-                
-                if ( empty( $rest_of_path ) ) {
-                    // Language homepage
-                    unset( $query_vars['pagename'] );
-                    unset( $query_vars['name'] );
-                    
-                    if ( 'page' === get_option( 'show_on_front' ) ) {
-                        $page_id = get_option( 'page_on_front' );
-                        if ( $page_id ) {
-                            $query_vars['page_id'] = $page_id;
-                        }
-                    }
-                } else {
-                    // Language + slug - try to resolve what type this is
-                    $slug = $rest_of_path;
-                    
-                    // First, check if it's a page
-                    $page = get_page_by_path( $slug, OBJECT, 'page' );
-                    if ( $page ) {
-                        $query_vars['pagename'] = $slug;
-                        return $query_vars;
-                    }
-                    
-                    // Check if it's a post
-                    $post = get_page_by_path( $slug, OBJECT, 'post' );
-                    if ( $post ) {
-                        unset( $query_vars['pagename'] );
-                        $query_vars['name'] = $slug;
-                        $query_vars['post_type'] = 'post';
-                        return $query_vars;
-                    }
-                    
-                    // Check for custom post types (like WooCommerce products)
-                    $post_types = get_post_types( array( 'public' => true, '_builtin' => false ), 'names' );
-                    foreach ( $post_types as $post_type ) {
-                        $custom_post = get_page_by_path( $slug, OBJECT, $post_type );
-                        if ( $custom_post ) {
-                            unset( $query_vars['pagename'] );
-                            $query_vars['name'] = $slug;
-                            $query_vars['post_type'] = $post_type;
-                            return $query_vars;
-                        }
-                    }
-                    
-                    // Check if it's a taxonomy term (product categories, etc.)
-                    // Try to parse multi-level paths like 'product-category/groceries'
-                    $path_parts = explode( '/', $slug );
-                    $taxonomies = get_taxonomies( array( 'public' => true ), 'names' );
-                    
-                    foreach ( $taxonomies as $taxonomy ) {
-                        $tax_obj = get_taxonomy( $taxonomy );
-                        
-                        // Try the fully qualified slug (e.g., 'product-category/groceries')
-                        $term = get_term_by( 'slug', $slug, $taxonomy );
-                        if ( ! $term && count( $path_parts ) > 1 ) {
-                            // Try just the last part (e.g., 'groceries' from 'product-category/groceries')
-                            $last_slug = end( $path_parts );
-                            $term = get_term_by( 'slug', $last_slug, $taxonomy );
-                        }
-                        
-                        if ( $term && ! is_wp_error( $term ) ) {
-                            // WordPress taxonomy archive page - set query vars properly
-                            unset( $query_vars['pagename'] );
-                            unset( $query_vars['name'] );
-                            unset( $query_vars['error'] );
-                            unset( $query_vars['attachment'] );
-                            unset( $query_vars['page'] );
-                            unset( $query_vars['s'] );  // Search
-                            
-                            // Clear any post-type query vars that might interfere
-                            unset( $query_vars['post_type'] );
-                            unset( $query_vars['posts_per_page'] );
-                            
-                            // Set the taxonomy and term slug - WordPress will handle the archive page
-                            $query_vars[ $taxonomy ] = $term->slug;
-                            
-                            return $query_vars;
-                        }
-                    }
-                    
-                    // If nothing matched, set as pagename and let WordPress handle it
-                    $query_vars['pagename'] = $slug;
+        if ( isset( $query_vars['lang'] ) && empty( $core_vars ) ) {
+            if ( 'page' === get_option( 'show_on_front' ) ) {
+                $page_id = get_option( 'page_on_front' );
+                if ( $page_id ) {
+                    $query_vars['page_id'] = $page_id;
+                    $query_vars['is_front_page'] = 1;
                 }
             }
         }
-        
+
         return $query_vars;
     }
 
     function disable_canonical_redirect_for_lang( $redirect_url, $requested_url ) {
-        // If the requested URL has a language prefix, don't redirect
-        $request_path = parse_url($requested_url, PHP_URL_PATH);
-        $home_path = parse_url(get_option('home'), PHP_URL_PATH);
-        
-        if ($home_path && $home_path !== '/') {
-            $request_path = preg_replace('#^' . preg_quote(rtrim($home_path, '/'), '#') . '#', '', $request_path);
-        }
-
-        // Ensure path starts with slash for match
-        if ($request_path && substr($request_path, 0, 1) !== '/') {
-            $request_path = '/' . $request_path;
-        }
-
-        if ( preg_match( '#^/[a-z]{2}(/|$)#', $request_path ) ) {
+        // If we are actively parsing a custom language, disable native WordPress
+        // canonical redirect fixing, because we altered $_SERVER['REQUEST_URI'] 
+        // to spoof native routing, which causes an infinite redirect loop.
+        if ( isset($_GET['lang']) && sanitize_key($_GET['lang']) !== $this->get_default_language() ) {
             return false;
         }
         return $redirect_url;
@@ -273,7 +148,6 @@ class LiveLang_Frontend {
         $lang = get_query_var( 'lang' );
 
         if ( $lang ) {
-            // Language explicitly in URL - use it and save to cookie
             if ( ! defined( 'LIVELANG_CURRENT_LANG' ) ) {
                 define( 'LIVELANG_CURRENT_LANG', $lang );
                 if ( ! headers_sent() ) {
@@ -281,14 +155,21 @@ class LiveLang_Frontend {
                 }
             }
         } else {
-            // No language in URL - use DEFAULT language, NOT cookie
-            // This ensures /contact/ uses default language, not the cookie from /bn/contact/
-            if ( ! defined( 'LIVELANG_CURRENT_LANG' ) ) {
-                $default_lang = $this->get_default_language();
-                define( 'LIVELANG_CURRENT_LANG', $default_lang );
-                // Update cookie to default language
-                if ( ! headers_sent() ) {
-                    setcookie('livelang_lang', $default_lang, time() + MONTH_IN_SECONDS, COOKIEPATH, COOKIE_DOMAIN);
+            // Check cookie as fallback
+            $lang_from_cookie = isset( $_COOKIE['livelang_lang'] ) ? sanitize_key( $_COOKIE['livelang_lang'] ) : '';
+            
+            if ( $lang_from_cookie && preg_match( '/^[a-z]{2,5}$/', $lang_from_cookie ) ) {
+                if ( ! defined( 'LIVELANG_CURRENT_LANG' ) ) {
+                    define( 'LIVELANG_CURRENT_LANG', $lang_from_cookie );
+                }
+            } else {
+                if ( ! defined( 'LIVELANG_CURRENT_LANG' ) ) {
+                    $default_lang = $this->get_default_language();
+                    define( 'LIVELANG_CURRENT_LANG', $default_lang );
+                    // Set cookie for default language too
+                    if ( ! headers_sent() ) {
+                        setcookie('livelang_lang', $default_lang, time() + MONTH_IN_SECONDS, COOKIEPATH, COOKIE_DOMAIN);
+                    }
                 }
             }
         }
@@ -345,6 +226,7 @@ class LiveLang_Frontend {
     }
 
     protected function is_enabled_for_user() {
+        
         $settings = get_option( 'livelang_settings', array( 'enabled' => 1 ) );
         if ( empty( $settings['enabled'] ) ) {
             return false;
@@ -435,7 +317,7 @@ class LiveLang_Frontend {
                 $path = '/' . $path;
             }
 
-            if ( preg_match( '#^/([a-z]{2})(?:/|$)#', $path, $matches ) ) {
+            if ( preg_match( '#^/([a-z]{2,5})(?:/|$)#', $path, $matches ) ) {
                 $lang = $matches[1];
             } else if ( isset( $_COOKIE['livelang_lang'] ) ) {
                 $lang = sanitize_key( $_COOKIE['livelang_lang'] );
@@ -660,12 +542,37 @@ class LiveLang_Frontend {
         return $info;
     }
 
+    protected function is_rtl_language($lang) {
+        $rtl_langs = array('ar', 'he', 'fa', 'ur', 'ps', 'yi', 'syr', 'dv', 'ku', 'ug');
+        return in_array(strtolower(substr($lang, 0, 2)), $rtl_langs, true);
+    }
+
+    protected function apply_rtl_formatting( &$content, $language ) {
+        if ( $this->is_rtl_language( $language ) ) {
+            // Force HTML dir attributes
+            if (preg_match('/<html[^>]*dir=["\']ltr[\'"][^>]*>/i', $content)) {
+                 $content = preg_replace('/(<html[^>]*dir=["\'])ltr([\'"][^>]*>)/i', '${1}rtl${2}', $content);
+            } else if (strpos($content, 'dir="rtl"') === false && preg_match('/<html[^>]*>/i', $content)) {
+                 $content = preg_replace('/(<html[^>]*)>/i', '$1 dir="rtl">', $content, 1);
+            }
+
+            // Force body classes for themes that rely on it
+            if ( preg_match( '/<body[^>]*class=["\'][^"\']*["\'][^>]*>/i', $content ) ) {
+                 $content = preg_replace( '/(<body[^>]*class=["\'])([^"\']*)(["\'][^>]*>)/i', '${1}rtl $2${3}', $content, 1 );
+            } else if ( preg_match( '/<body[^>]*>/i', $content ) ) {
+                 $content = preg_replace( '/(<body[^>]*)>/i', '$1 class="rtl">', $content, 1 );
+            }
+        }
+    }
+
     public function buffer_callback( $content ) {
 
         $slug     = $this->get_current_slug();
         $language = $this->getCurrentLanguage();
 
         $map = $this->get_translations_map($slug, $language);
+
+        $this->apply_rtl_formatting( $content, $language );
 
         if (empty($map)) {
             return $content;
@@ -1001,104 +908,10 @@ class LiveLang_Frontend {
     }
 
     /**
-     * Show debug info if ?livelang_debug=1 and user is admin
-     */
-    public function maybe_show_debug_info() {
-        if ( ! current_user_can( 'manage_options' ) ) {
-            return;
-        }
-        
-        if ( ! isset( $_GET['livelang_debug'] ) || $_GET['livelang_debug'] !== '1' ) {
-            return;
-        }
-        
-        // Output debug info and exit
-        echo $this->debug_translations();
-        exit;
-    }
-
-    /**
-     * Debug helper - Comprehensive debugging for rewrite rules and URL handling
-     */
-    public function debug_translations() {
-        if (!current_user_can('manage_options')) {
-            return 'Access denied';
-        }
-
-        $output = "<h2>LiveLang Debug Info</h2>";
-        
-        // 1. Check what pages exist in the database
-        $output .= "<h3>Available Pages</h3>";
-        $pages = get_pages(array('post_type' => 'page'));
-        if (!empty($pages)) {
-            $output .= "<ul>";
-            foreach ($pages as $page) {
-                $output .= "<li><strong>" . esc_html($page->post_title) . "</strong> - Slug: <code>" . esc_html($page->post_name) . "</code> (ID: {$page->ID})</li>";
-            }
-            $output .= "</ul>";
-        } else {
-            $output .= "<p>No pages found</p>";
-        }
-        
-        // 2. Current request info
-        $output .= "<h3>Current Request</h3>";
-        $output .= "<p><strong>REQUEST_URI:</strong> <code>" . esc_html($_SERVER['REQUEST_URI']) . "</code></p>";
-        $output .= "<p><strong>Query Vars:</strong><pre>";
-        global $wp;
-        $output .= htmlspecialchars(print_r($wp->query_vars, true));
-        $output .= "</pre></p>";
-        
-        // 3. Current language detection
-        $output .= "<h3>Language Detection</h3>";
-        $current_lang = $this->getCurrentLanguage();
-        $output .= "<p><strong>Current Language:</strong> <code>" . esc_html($current_lang) . "</code></p>";
-        if (defined('LIVELANG_CURRENT_LANG')) {
-            $output .= "<p><strong>LIVELANG_CURRENT_LANG Constant:</strong> <code>" . esc_html(LIVELANG_CURRENT_LANG) . "</code></p>";
-        }
-        
-        // 4. Cookie
-        if (isset($_COOKIE['livelang_lang'])) {
-            $output .= "<p><strong>Cookie (livelang_lang):</strong> <code>" . esc_html($_COOKIE['livelang_lang']) . "</code></p>";
-        }
-        
-        // 5. Current page info
-        $slug = $this->get_current_slug();
-        $output .= "<h3>Current Page Detection</h3>";
-        $output .= "<p><strong>Detected Slug:</strong> <code>" . esc_html($slug) . "</code></p>";
-        global $post;
-        if (!empty($post)) {
-            $output .= "<p><strong>Post ID:</strong> {$post->ID}</p>";
-            $output .= "<p><strong>Post Name:</strong> <code>" . esc_html($post->post_name) . "</code></p>";
-            $output .= "<p><strong>Post Type:</strong> <code>" . esc_html($post->post_type) . "</code></p>";
-        } else {
-            $output .= "<p><strong>Post:</strong> NOT SET (404?)</p>";
-        }
-        
-        // 6. Rewrite rules check
-        $output .= "<h3>Rewrite Rules Status</h3>";
-        global $wp_rewrite;
-        $output .= "<p>Rewrite rules are " . (count($wp_rewrite->rules) > 0 ? "ACTIVE (" . count($wp_rewrite->rules) . " rules)" : "INACTIVE") . "</p>";
-        
-        // Check if our lang rules are present
-        $lang_rules_found = false;
-        foreach ($wp_rewrite->rules as $pattern => $rule) {
-            if (strpos($pattern, '[a-z]{2}') !== false) {
-                $lang_rules_found = true;
-                $output .= "<p><strong>Language Rule Found:</strong> <code>$pattern</code> → <code>$rule</code></p>";
-            }
-        }
-        if (!$lang_rules_found) {
-            $output .= "<p style='color:red;'><strong>⚠️ NO Language rewrite rules found!</strong> You need to flush rewrite rules.</p>";
-        }
-        
-        return "<div style='background:#f5f5f5; padding:20px; border:1px solid #ddd;'>" . $output . "</div>";
-    }
-    
-    /**
      * Debug helper - Check if translations exist in database for current page/language
      * Add to a temporary admin page to test
      */
-    public function debug_translations_original() {
+    public function debug_translations() {
         if (!current_user_can('manage_options')) {
             return 'Access denied';
         }
@@ -1198,21 +1011,18 @@ class LiveLang_Frontend {
             return 'home';
         }
         
-        // ALWAYS strip language prefix if present (regardless of whether it's default or not)
-        // This ensures translations are stored with consistent slugs like 'contact' not 'bn/contact'
+        // Remove language prefix if present (simple string operation, no function calls)
         $language = $this->getCurrentLanguage();
-        
-        // Strip the language code from the beginning if it matches the current language
-        $prefix = $language . '/';
-        if (strpos($slug, $prefix) === 0) {
-            $slug = substr($slug, strlen($prefix));
-        } elseif ($slug === $language) {
-            // URL is just the language code (homepage)
-            $slug = '';
+        if (!empty($language) && $language !== $this->get_default_language()) {
+            $prefix = $language . '/';
+            if (strpos($slug, $prefix) === 0) {
+                $slug = substr($slug, strlen($prefix));
+            } elseif ($slug === $language) {
+                $slug = '';
+            }
         }
         
-        $final_slug = empty($slug) ? 'home' : $slug;
-        return $final_slug;
+        return empty($slug) ? 'home' : $slug;
     }
 
     protected function get_homepage_slug() {
@@ -1301,12 +1111,12 @@ class LiveLang_Frontend {
             LIVELANG_VERSION,
             true
         );
-
+        
         if ( $this->is_enabled_for_user() ) {
             wp_enqueue_script(
                 'livelang-frontend-editor',
                 LIVELANG_PLUGIN_URL . 'assets/js/livelang-frontend-editor.js',
-                array(),
+                array( 'livelang-frontend' ),
                 LIVELANG_VERSION,
                 true
         );
@@ -1658,16 +1468,44 @@ class LiveLang_Frontend {
         return $items;
     }
 
-    /**
-     * Filter URLs - DO NOT add language prefix automatically
-     * Only respect language codes if explicitly provided in URL.
-     * Language is managed through cookies and locale, not URL modification.
-     */
     public function filter_url( $url ) {
-        // Simply return URL without modification
-        // This prevents automatic language code injection into URLs
-        // Language will be determined by cookies/current selection instead
-        return $url;
+        if ( is_admin() && !wp_doing_ajax() ) {
+            return $url;
+        }
+
+        // Ignore empty or fragment URLs
+        if ( empty( $url ) || strpos( $url, '#' ) === 0 ) {
+            return $url;
+        }
+
+        $home_url = get_option('home');
+        if ( strpos( $url, rtrim( $home_url, '/' ) ) !== 0 ) {
+            return $url;
+        }
+
+        // Avoid adding prefix to wp-login, wp-admin, ajax
+        if ( strpos( $url, 'wp-login.php' ) !== false || strpos( $url, 'wp-admin' ) !== false || strpos( $url, 'admin-ajax.php' ) !== false ) {
+            return $url;
+        }
+
+        $current_lang = $this->getCurrentLanguage();
+        $default_lang = $this->get_default_language();
+
+        if ( empty( $current_lang ) || $current_lang === $default_lang ) {
+            return $url;
+        }
+
+        $home_url_slash = trailingslashit( $home_url );
+        $path = str_replace( $home_url_slash, '', $url );
+        // Also check unslashed just in case
+        $path = str_replace( $home_url, '', $path );
+
+        // If it starts with the valid language prefix, skip
+        if ( preg_match( '#^/?' . preg_quote( $current_lang, '#' ) . '(/|$)#', $path ) ) {
+            return $url;
+        }
+
+        return $home_url_slash . $current_lang . '/' . ltrim( $path, '/' );
     }
 
     

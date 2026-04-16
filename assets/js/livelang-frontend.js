@@ -51,8 +51,8 @@
       if (!path.startsWith("/")) path = "/" + path;
 
       // Remove existing language prefix
-      if (path.length >= 3 && /^\/[a-z]{2}(\/|$)/.test(path)) {
-        path = path.substring(3);
+      if (path.length >= 3 && /^\/[a-z]{2,5}(\/|$)/.test(path)) {
+        path = path.replace(/^\/[a-z]{2,5}/, "");
         if (!path.startsWith("/")) path = "/" + path;
       }
 
@@ -152,6 +152,16 @@
             ";expires=" +
             date.toUTCString() +
             ";path=/";
+
+          // Omit language prefix if switching to default language
+          if ( langCode === LiveLangSettings.defaultLanguage ) {
+            if (path === "/" || path === "") {
+                window.location.href = baseUrl + "/";
+            } else {
+                window.location.href = baseUrl + path;
+            }
+            return;
+          }
 
           if (path === "/" || path === "") {
             const newUrl = baseUrl + "/" + langCode + "/";
